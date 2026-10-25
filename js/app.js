@@ -839,14 +839,23 @@
   renderPill();
   SY.start().then(function (merged) {
     var st = SY.status();
+    var before = JSON.stringify(data) + "|" + settings().name;
     if (st.inTeams && st.context && st.context.app) {
       applyTheme(st.context.app.theme);
       try { window.microsoftTeams.app.registerOnThemeChangeHandler(applyTheme); } catch (e) { /* older host */ }
-      try { window.microsoftTeams.app.notifySuccess(); } catch (e) { /* ignore */ }
     }
     if (merged) { data = normalise(merged) || data; }
     if (!settings().name && st.account && st.account.name) { settings().name = st.account.name; }
-    renderPill(); render();
+    renderPill();
+    // redraw only if something changed, so the screen doesn't jump
+    if (JSON.stringify(data) + "|" + settings().name !== before) render();
+  });
+  // Teams app caching: when Teams brings a kept-in-memory Winsprout back, show the right screen with fresh data
+  document.addEventListener("ws-resume", function (e) {
+    var v = e.detail && e.detail.view;
+    var fresh = normalise(SY.load()); if (fresh) data = fresh;
+    if (v && VIEWS.indexOf(v) >= 0) show(v); else render();
+    renderPill();
   });
   window.__WS_APP__ = { data: function () { return data; }, show: show, render: render };
 })();

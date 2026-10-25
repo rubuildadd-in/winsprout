@@ -31,11 +31,34 @@
   function initTeams() {
     if (!g.microsoftTeams || !g.microsoftTeams.app) return Promise.resolve(false);
     return Promise.race([
-      g.microsoftTeams.app.initialize().then(function () { return g.microsoftTeams.app.getContext(); }).then(function (ctx) {
+      g.microsoftTeams.app.initialize().then(function () {
+        var app = g.microsoftTeams.app;
+        // the screen is already drawn from this device's copy: tell Teams to stop its loading animation now
+        try { if (app.notifyAppLoaded) app.notifyAppLoaded(); } catch (e) { /* older Teams */ }
+        try { app.notifySuccess(); } catch (e) { /* older Teams */ }
+        registerCaching(app);
+        return app.getContext();
+      }).then(function (ctx) {
         S.inTeams = true; S.context = ctx; return true;
       }),
       new Promise(function (r) { setTimeout(function () { r(false); }, 2500); })
     ]).catch(function () { return false; });
+  }
+
+  /* Teams app caching: lets Teams keep Winsprout in memory when you switch away, so coming back is instant */
+  function registerCaching(app) {
+    var lc = app && app.lifecycle;
+    if (!lc || !lc.registerOnResumeHandler || !lc.registerBeforeSuspendOrTerminateHandler) return;
+    try {
+      lc.registerBeforeSuspendOrTerminateHandler(function () { clearTimeout(S.saveTimer); return Promise.resolve(); });
+      lc.registerOnResumeHandler(function (d) {
+        var view = "";
+        try { view = new URL(d.contentUrl).searchParams.get("view") || ""; } catch (e) { /* no url */ }
+        try { g.document.dispatchEvent(new CustomEvent("ws-resume", { detail: { view: view } })); } catch (e) { /* ignore */ }
+        registerCaching(app); // handlers are cleared on suspend
+        try { app.notifySuccess(); } catch (e) { /* ignore */ }
+      });
+    } catch (e) { /* not supported here */ }
   }
 
   function initAuth() {
