@@ -47,6 +47,64 @@
     var t = $("toast"); t.textContent = msg; t.classList.add("show");
     clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.classList.remove("show"); }, 3200);
   }
+  /* ---------- celebrations and motion (switched off when the person asks for reduced motion) ---------- */
+  var fx = (function () {
+    var calm = false;
+    try { calm = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) { /* old browser */ }
+    var api = { ringFrom: null, newId: null };
+    api.enter = function (el) {
+      if (calm || !el) return;
+      el.classList.remove("enter"); void el.offsetWidth; el.classList.add("enter");
+      clearTimeout(el._enterT); el._enterT = setTimeout(function () { el.classList.remove("enter"); }, 700); // so later redraws don't replay it
+    };
+    api.bump = function (el) {
+      if (calm || !el) return;
+      el.classList.remove("bump"); void el.offsetWidth; el.classList.add("bump");
+    };
+    // burst of little stars, leaves and confetti from the Add button (or the screen centre)
+    api.burst = function (rect, power) {
+      if (calm) return;
+      var cv = document.createElement("canvas"), dpr = window.devicePixelRatio || 1, W = window.innerWidth, H = window.innerHeight;
+      cv.className = "fxcanvas"; cv.setAttribute("aria-hidden", "true");
+      cv.width = W * dpr; cv.height = H * dpr; document.body.appendChild(cv);
+      var g = cv.getContext("2d"); if (!g) { cv.remove(); return; } g.scale(dpr, dpr);
+      var ox = rect ? rect.left + rect.width / 2 : W / 2, oy = rect ? rect.top + rect.height / 2 : H / 3;
+      var colors = ["#5b2fc9", "#7b4cfd", "#b39bff", "#e9a400", "#ffcf40", "#2fa36b"], n = power > 1 ? 90 : 46, parts = [];
+      for (var i = 0; i < n; i++) {
+        var a = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * (power > 1 ? 1.5 : 1.1), sp = (power > 1 ? 7 : 5.5) + Math.random() * 5;
+        parts.push({ x: ox, y: oy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, r: 3 + Math.random() * 4, rot: Math.random() * 6, vr: (Math.random() - 0.5) * 0.3,
+          c: colors[i % colors.length], shape: i % 5 === 0 ? "star" : i % 3 === 0 ? "leaf" : "rect" });
+      }
+      var t0 = performance.now(), life = power > 1 ? 1500 : 1100;
+      function star(r) { g.beginPath(); for (var k = 0; k < 10; k++) { var rr = k % 2 ? r * 0.45 : r, an = Math.PI / 5 * k - Math.PI / 2; g.lineTo(Math.cos(an) * rr, Math.sin(an) * rr); } g.closePath(); g.fill(); }
+      (function frame(now) {
+        var t = now - t0; g.clearRect(0, 0, W, H);
+        parts.forEach(function (p) {
+          p.vy += 0.22; p.vx *= 0.985; p.x += p.vx; p.y += p.vy; p.rot += p.vr;
+          g.save(); g.globalAlpha = Math.max(0, 1 - t / life); g.translate(p.x, p.y); g.rotate(p.rot); g.fillStyle = p.c;
+          if (p.shape === "star") star(p.r * 1.4);
+          else if (p.shape === "leaf") { g.beginPath(); g.ellipse(0, 0, p.r * 1.3, p.r * 0.6, 0, 0, Math.PI * 2); g.fill(); }
+          else g.fillRect(-p.r, -p.r / 2, p.r * 2, p.r);
+          g.restore();
+        });
+        if (t < life) requestAnimationFrame(frame); else cv.remove();
+      })(t0);
+    };
+    // "New badge" celebration card (also announced to screen readers)
+    api.badge = function (b) {
+      var old = $("fxBadge"); if (old) old.remove();
+      var card = h("div", { id: "fxBadge", class: "fxbadge", role: "status" }, [
+        h("span", { class: "fxicon", "aria-hidden": "true", text: b.icon }),
+        h("div", null, [h("small", { text: "New badge" }), h("b", { text: b.name }), h("span", { class: "small muted", text: b.how })]),
+        h("button", { class: "icon", type: "button", "aria-label": "Close", onclick: function () { card.remove(); } }, ["✕"])
+      ]);
+      document.body.appendChild(card);
+      if (!calm) api.burst(null, 2);
+      setTimeout(function () { card.classList.add("out"); setTimeout(function () { card.remove(); }, 400); }, 4200);
+    };
+    return api;
+  })();
+
   function plural(n, w) { return n + " " + w + (n === 1 ? "" : "s"); }
 
   /* ---------- tabs ---------- */
@@ -60,6 +118,7 @@
       $("v-" + v).hidden = !on;
     });
     render();
+    fx.enter($("v-" + view));
     if (focus) $("t-" + view).focus();
     if (!TAB) SY.set("view", view);
   }
@@ -107,7 +166,12 @@
     var r = 26, c = 2 * Math.PI * r, f = Math.min(done / Math.max(goal, 1), 1);
     return svg("svg", { width: 68, height: 68, viewBox: "0 0 68 68", class: "ring", role: "img", "aria-label": done + " of " + goal + " wins this week" }, [
       svg("circle", { cx: 34, cy: 34, r: r, class: "ring-bg" }),
-      svg("circle", { cx: 34, cy: 34, r: r, class: "ring-fg", "stroke-dasharray": (c * f) + " " + c, transform: "rotate(-90 34 34)" }),
+      (function () {
+        var from = fx.ringFrom === null ? 0 : fx.ringFrom, fg = svg("circle", { cx: 34, cy: 34, r: r, class: "ring-fg", "stroke-dasharray": (c * Math.min(from, 1)) + " " + c, transform: "rotate(-90 34 34)" });
+        fx.ringFrom = f;
+        requestAnimationFrame(function () { requestAnimationFrame(function () { fg.setAttribute("stroke-dasharray", (c * f) + " " + c); }); });
+        return fg;
+      })(),
       svg("text", { x: 34, y: 39, "text-anchor": "middle", class: "ring-txt" }, [done + "/" + goal])
     ]);
   }
@@ -161,14 +225,19 @@
     if (!text) { toast("Write a few words about your win first."); $("winText").focus(); return; }
     var had = {};
     WS.badges(data.wins, TODAY, settings().workdays, data.shows).forEach(function (b) { if (b.got) had[b.id] = 1; });
-    data.wins.push(WS.makeWin(ui.logDay, text, ui.cat, ui.imp));
+    var nw = WS.makeWin(ui.logDay, text, ui.cat, ui.imp), big = nw.imp === 3, prevStreak = WS.streak(data.wins, TODAY, settings().workdays);
+    data.wins.push(nw); fx.newId = nw.id;
     save();
+    var addBtn = document.querySelector(".log .btn[type=submit]"), origin = addBtn ? addBtn.getBoundingClientRect() : null;
     var fresh = WS.badges(data.wins, TODAY, settings().workdays, data.shows).filter(function (b) { return b.got && !had[b.id]; });
     var st = WS.streak(data.wins, TODAY, settings().workdays);
     ui.imp = 2;
     render();
-    if (fresh.length) toast(fresh[0].icon + " New badge: " + fresh[0].name + "!");
-    else toast(st > 1 ? "🌱 Win saved. " + st + "-day streak!" : "🌱 Win saved.");
+    fx.newId = null; // the slide-in plays once
+    fx.burst(origin, big ? 2 : 1);
+    if (st > prevStreak) fx.bump(document.querySelector(".hero .muted"));
+    if (fresh.length) fx.badge(fresh[0]);
+    else toast(big ? "🚀 Big win saved!" + (st > 1 ? " " + st + "-day streak." : "") : (st > 1 ? "🌱 Win saved. " + st + "-day streak!" : "🌱 Win saved."));
     var t = $("winText"); if (t) t.focus();
   }
 
@@ -192,7 +261,7 @@
         setTimeout(function () { ta.focus(); }, 0);
         return;
       }
-      ul.appendChild(h("li", { class: "win" + (w.imp === 3 ? " big" : "") }, [
+      ul.appendChild(h("li", { class: "win" + (w.imp === 3 ? " big" : "") + (fx.newId === w.id ? " new" : "") }, [
         h("span", { class: "wico", "aria-hidden": "true", text: c.emoji }),
         h("div", { class: "wbody" }, [h("p", { class: "wtext", text: w.t }), h("p", { class: "small muted", text: c.label + " · " + WS.IMPACT[w.imp] + (ui.view !== "today" ? " · " + WS.short(w.d) : "") })]),
         h("div", { class: "wact" }, [
@@ -671,7 +740,9 @@
     sh.title = ""; sh.msg = ""; sh.link = ""; sh.image = null; sh.copied = false; sh.err = "";
     var fresh = WS.badges(data.wins, TODAY, settings().workdays, data.shows).filter(function (b) { return b.got && !had[b.id]; });
     render();
-    toast(fresh.length ? fresh[0].icon + " Saved! New badge: " + fresh[0].name : (url ? "🎉 Posted to " + label + "." : "Added to your talent moments."));
+    fx.burst(null, 2);
+    if (fresh.length) fx.badge(fresh[0]);
+    else toast(url ? "🎉 Posted to " + label + "." : "Added to your talent moments.");
   }
 
   /* Help for companies where IT must approve Winsprout */
@@ -837,6 +908,7 @@
   });
   show(ui.view);
   renderPill();
+  fx.newId = null;
   SY.start().then(function (merged) {
     var st = SY.status();
     var before = JSON.stringify(data) + "|" + settings().name;

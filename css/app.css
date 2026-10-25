@@ -122,4 +122,34 @@ input[type=file]{max-width:100%;min-width:0}
   .hero h1{font-size:19px}
   .talent{grid-template-columns:1fr auto}.talent input{grid-column:1 / -1;order:3}
 }
-@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+/* ---------- motion ---------- */
+@keyframes wsIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes wsGrow{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+@keyframes wsPop{0%{opacity:0;transform:translateY(-10px) scale(.96);background:var(--brand-soft)}60%{opacity:1;transform:translateY(0) scale(1.01);background:var(--brand-soft)}100%{transform:none;background:var(--card)}}
+@keyframes wsBump{0%,100%{transform:none}40%{transform:scale(1.06)}}
+@keyframes wsBadgeIn{0%{opacity:0;transform:translate(-50%,24px) scale(.9)}70%{opacity:1;transform:translate(-50%,-4px) scale(1.02)}100%{transform:translate(-50%,0)}}
+@keyframes wsSpin{0%{transform:scale(.4) rotate(-20deg)}60%{transform:scale(1.25) rotate(8deg)}100%{transform:none}}
+section.enter > *{animation:wsIn .32s ease-out both}
+section.enter > *:nth-child(2){animation-delay:.04s}section.enter > *:nth-child(3){animation-delay:.08s}
+section.enter > *:nth-child(4){animation-delay:.12s}section.enter > *:nth-child(n+5){animation-delay:.16s}
+.chart .bar{transform-box:fill-box;transform-origin:50% 100%;animation:wsGrow .6s cubic-bezier(.2,.8,.2,1) both}
+.chart .bar:nth-of-type(2){animation-delay:.04s}.chart .bar:nth-of-type(3){animation-delay:.08s}.chart .bar:nth-of-type(4){animation-delay:.12s}
+.chart .bar:nth-of-type(5){animation-delay:.16s}.chart .bar:nth-of-type(6){animation-delay:.2s}.chart .bar:nth-of-type(n+7){animation-delay:.24s}
+.ring-fg{transition:stroke-dasharray .8s cubic-bezier(.2,.8,.2,1)}
+.fill{animation:wsGrowX .7s cubic-bezier(.2,.8,.2,1) both;transform-origin:left}
+@keyframes wsGrowX{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+.win.new{animation:wsPop .7s cubic-bezier(.2,.9,.3,1.2) both}
+.bump{display:inline-block;animation:wsBump .5s ease-out}
+.btn,.chip,.seg button{transition:transform .12s ease,filter .12s ease,background-color .15s ease}
+.btn:active:not(:disabled),.chip:active,.seg button:active{transform:scale(.96)}
+.chip:hover{border-color:var(--brand)}
+.badge.got{transition:transform .15s ease}.badge.got:hover{transform:translateY(-2px)}
+.fxcanvas{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:40}
+.fxbadge{position:fixed;left:50%;bottom:calc(64px + env(safe-area-inset-bottom,0px));transform:translate(-50%,0);display:flex;align-items:center;gap:12px;
+  background:var(--card);color:var(--ink);border:1px solid var(--brand);border-radius:16px;padding:12px 10px 12px 16px;box-shadow:0 12px 34px rgba(31,29,38,.18);
+  z-index:45;max-width:calc(100% - 32px);animation:wsBadgeIn .5s cubic-bezier(.2,.9,.3,1.2) both}
+.fxbadge.out{opacity:0;transition:opacity .35s ease}
+.fxbadge .fxicon{font-size:34px;animation:wsSpin .7s cubic-bezier(.2,.9,.3,1.3) both}
+.fxbadge small{display:block;font-weight:700;color:var(--brand);text-transform:uppercase;letter-spacing:.06em;font-size:11px}
+.fxbadge b{display:block;font-size:16px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
