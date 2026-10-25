@@ -90,6 +90,30 @@ details.month summary{cursor:pointer;font-weight:600}
 .ask[hidden]{display:none}
 .askbox{background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:14px;padding:18px;max-width:420px;width:100%;box-shadow:0 10px 30px rgba(0,0,0,.25)}
 .askbox p{margin:0 0 14px;font-weight:600}
+/* growth level */
+.level{display:flex;gap:12px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 14px;margin:6px 0 4px}
+.level.big{border:none;padding:0;margin:0 0 6px;background:transparent}
+.lvicon{font-size:28px;line-height:1}.level.big .lvicon{font-size:44px}
+.lvbody{flex:1;min-width:0}
+.lvtop{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;margin-bottom:6px}
+.level.big .lvtop b{font-size:18px}
+.lvbar{display:block;height:10px;border-radius:999px;background:var(--bg);border:1px solid var(--line);overflow:hidden}
+.lvbar span{display:block;height:100%;background:linear-gradient(90deg,var(--bar),var(--brand));border-radius:999px;transition:width .8s cubic-bezier(.2,.8,.2,1)}
+/* badges */
+.badge .earned{color:var(--brand);font-weight:600}
+.badge .btn{align-self:center;margin-top:4px}
+.badge:not(.got) .bicon{filter:grayscale(1);opacity:.75}
+.bprog{display:block;height:6px;border-radius:999px;background:var(--bg);border:1px solid var(--line);overflow:hidden;margin:6px 8px 0}
+.bprog span{display:block;height:100%;background:var(--bar)}
+.badge .left{color:var(--soft)}
+.badges.next .badge{border-style:solid;border-color:var(--bar)}
+.icon.share{font-size:15px}
+/* share window */
+.ask.share{z-index:35;align-items:start;overflow-y:auto}
+.sharebox{max-width:560px;margin:4vh auto;display:flex;flex-direction:column;gap:6px}
+.sharebox h2{margin:0;font-size:18px}
+.sharebox textarea{width:100%;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--bg);resize:vertical}
+.sharebox .dest select{width:100%}
 .toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%) translateY(20px);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;opacity:0;pointer-events:none;transition:all .25s;max-width:calc(100% - 32px);z-index:20;font-weight:600}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 .copybox{width:100%;margin-top:10px;font-family:Consolas,monospace;font-size:12px;border:1px solid var(--line);border-radius:8px;background:var(--card)}
@@ -161,6 +185,7 @@ section.enter > *:nth-child(4){animation-delay:.12s}section.enter > *:nth-child(
 .chip:hover{border-color:var(--brand)}
 .badge.got{transition:transform .15s ease}.badge.got:hover{transform:translateY(-2px)}
 .fxcanvas{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:40}
+.fxbadge .btn{white-space:nowrap}
 .fxbadge{position:fixed;left:50%;bottom:calc(64px + env(safe-area-inset-bottom,0px));transform:translate(-50%,0);display:flex;align-items:center;gap:12px;
   background:var(--card);color:var(--ink);border:1px solid var(--brand);border-radius:16px;padding:12px 10px 12px 16px;box-shadow:0 12px 34px rgba(31,29,38,.18);
   z-index:45;max-width:calc(100% - 32px);animation:wsBadgeIn .5s cubic-bezier(.2,.9,.3,1.2) both}

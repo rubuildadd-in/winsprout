@@ -119,8 +119,9 @@
   };
 
   /* ---------- badges ---------- */
-  WS.badges = function (wins, today, workdays, shows) {
-    var showCount = WS.live(shows).length;
+  /* Badges: each has progress (cur/target) so there is always a next goal */
+  WS.badges = function (wins, today, workdays, shows, shares) {
+    var showCount = WS.live(shows).length, shareCount = WS.live(shares).length;
     var live = WS.live(wins), best = WS.bestStreak(wins, workdays), cats = {}, big = 0, maxDay = 0;
     var days = WS.byDay(wins);
     Object.keys(days).forEach(function (k) { if (days[k].length > maxDay) maxDay = days[k].length; });
@@ -130,25 +131,56 @@
     live.forEach(function (w) { var ws = WS.weekStart(w.d); weeks[ws] = (weeks[ws] || 0) + 1; });
     var bestWeek = 0; Object.keys(weeks).forEach(function (k) { if (weeks[k] > bestWeek) bestWeek = weeks[k]; });
     var list = [
-      ["first", "🌱", "First sprout", "Log your first win", live.length >= 1],
-      ["three", "🌿", "Taking root", "Win streak of 3 working days", best >= 3],
-      ["week", "🔥", "Full week", "Win streak of 5 working days", best >= 5],
-      ["twenty", "🌳", "Steady grower", "Win streak of 20 working days", best >= 20],
-      ["w25", "🎯", "25 wins", "Log 25 wins", live.length >= 25],
-      ["w100", "🏆", "Century", "Log 100 wins", live.length >= 100],
-      ["w250", "👑", "Unstoppable", "Log 250 wins", live.length >= 250],
-      ["big", "🚀", "Big moment", "Log a Big win", big >= 1],
-      ["big10", "🌟", "Game changer", "Log 10 Big wins", big >= 10],
-      ["helper", "🤝", "Team player", "Help someone 10 times", (cats.helped || 0) >= 10],
-      ["learner", "📚", "Always learning", "Log 10 things you learned", (cats.learned || 0) >= 10],
-      ["fixer", "🔧", "Fixer", "Fix 10 problems", (cats.fixed || 0) >= 10],
-      ["all", "🎨", "All-rounder", "Log a win in every category", catTypes >= WS.CATEGORIES.length],
-      ["power", "⚡", "Power day", "Log 5 wins in one day", maxDay >= 5],
-      ["bigweek", "📈", "Big week", "Log 15 wins in one week", bestWeek >= 15],
-      ["stage", "🎤", "On stage", "Share your first talent moment", showCount >= 1],
-      ["encore", "👏", "Encore", "Share 5 talent moments", showCount >= 5]
+      ["first", "🌱", "First sprout", "Log your first win", live.length, 1, "win"],
+      ["three", "🌿", "Taking root", "Win streak of 3 working days", best, 3, "day"],
+      ["week", "🔥", "Full week", "Win streak of 5 working days", best, 5, "day"],
+      ["twenty", "🌳", "Steady grower", "Win streak of 20 working days", best, 20, "day"],
+      ["w25", "🎯", "25 wins", "Log 25 wins", live.length, 25, "win"],
+      ["w100", "🏆", "Century", "Log 100 wins", live.length, 100, "win"],
+      ["w250", "👑", "Unstoppable", "Log 250 wins", live.length, 250, "win"],
+      ["big", "🚀", "Big moment", "Log a Big win", big, 1, "Big win"],
+      ["big10", "🌟", "Game changer", "Log 10 Big wins", big, 10, "Big win"],
+      ["helper", "🤝", "Team player", "Help someone 10 times", cats.helped || 0, 10, "time"],
+      ["learner", "📚", "Always learning", "Log 10 things you learned", cats.learned || 0, 10, "thing"],
+      ["fixer", "🔧", "Fixer", "Fix 10 problems", cats.fixed || 0, 10, "problem"],
+      ["all", "🎨", "All-rounder", "Log a win in every category", catTypes, WS.CATEGORIES.length, "category"],
+      ["power", "⚡", "Power day", "Log 5 wins in one day", maxDay, 5, "win"],
+      ["bigweek", "📈", "Big week", "Log 15 wins in one week", bestWeek, 15, "win"],
+      ["stage", "🎤", "On stage", "Share your first talent moment", showCount, 1, "talent moment"],
+      ["encore", "👏", "Encore", "Share 5 talent moments", showCount, 5, "talent moment"],
+      ["proud", "📣", "Proud of it", "Share a proud moment with colleagues", shareCount, 1, "proud moment"]
     ];
-    return list.map(function (b) { return { id: b[0], icon: b[1], name: b[2], how: b[3], got: !!b[4] }; });
+    return list.map(function (b) {
+      var cur = Math.min(b[4], b[5]);
+      return { id: b[0], icon: b[1], name: b[2], how: b[3], got: b[4] >= b[5], cur: cur, target: b[5], unit: b[6],
+        left: b[4] >= b[5] ? 0 : b[5] - b[4] };
+    });
+  };
+  /* Date each badge was first earned (worked out from the dates of wins and posts, so it survives sync and edits) */
+  WS.badgeDates = function (wins, workdays, shows, shares) {
+    var lw = WS.live(wins), ls = WS.live(shows), lp = WS.live(shares), dates = {};
+    lw.concat(ls, lp).forEach(function (x) { if (x.d) dates[x.d] = 1; });
+    var out = {};
+    Object.keys(dates).sort().forEach(function (d) {
+      var upTo = function (arr) { return arr.filter(function (x) { return x.d <= d; }); };
+      WS.badges(upTo(lw), d, workdays, upTo(ls), upTo(lp)).forEach(function (b) { if (b.got && !out[b.id]) out[b.id] = d; });
+    });
+    return out;
+  };
+
+  /* Growth levels: every win adds points (Small 1, Solid 2, Big 3); each talent moment adds 3 */
+  WS.LEVELS = [[0, "Seed", "🌰"], [10, "Sprout", "🌱"], [30, "Seedling", "🌿"], [75, "Sapling", "🪴"], [150, "Young tree", "🌳"], [300, "Evergreen", "🌲"], [500, "Forest", "🏞️"]];
+  WS.points = function (wins, shows) {
+    var p = 0;
+    WS.live(wins).forEach(function (w) { p += w.imp === 3 ? 3 : w.imp === 1 ? 1 : 2; });
+    return p + WS.live(shows).length * 3;
+  };
+  WS.level = function (points) {
+    var i = 0; while (i + 1 < WS.LEVELS.length && points >= WS.LEVELS[i + 1][0]) i++;
+    var L = WS.LEVELS[i], N = WS.LEVELS[i + 1] || null;
+    return { n: i + 1, name: L[1], icon: L[2], min: L[0], points: points,
+      next: N ? { name: N[1], icon: N[2], at: N[0], left: N[0] - points } : null,
+      pct: N ? Math.round((points - L[0]) / (N[0] - L[0]) * 100) : 100 };
   };
 
   /* ---------- merge local and OneDrive copies (by id, newest edit wins; deletions kept as tombstones) ---------- */
@@ -168,7 +200,7 @@
     var sa = a.settings || {}, sb = b.settings || {};
     var settings = (sb.u || 0) > (sa.u || 0) ? sb : sa;
     return { v: 1, settings: settings, wins: mergeList(a.wins, b.wins, byDayThenTime),
-      talents: mergeList(a.talents, b.talents), shows: mergeList(a.shows, b.shows, byDayThenTime) };
+      talents: mergeList(a.talents, b.talents), shows: mergeList(a.shows, b.shows, byDayThenTime), shares: mergeList(a.shares, b.shares, byDayThenTime) };
   };
   WS.sameData = function (a, b) { return JSON.stringify(a) === JSON.stringify(b); };
 
@@ -264,6 +296,14 @@
         body.push(p([run(x.tn + ": ", { b: true }), run(x.title), run("   " + WS.nice(x.d) + (x.to && x.to !== "Posted by me" ? " · " + x.to : ""), { color: "5C5966", sz: 19 })], { after: 100 }));
       });
     }
+    // growth and badges (filled in by the app)
+    if (rep.extra && (rep.extra.level || (rep.extra.badges && rep.extra.badges.length))) {
+      body.push(heading("Growth and badges"));
+      if (rep.extra.level) body.push(p([run(rep.extra.level.icon + " " + rep.extra.level.name, { b: true }), run("   level " + rep.extra.level.n + " of " + WS.LEVELS.length + " · " + rep.extra.level.points + " points", { color: "5C5966", sz: 19 })], { after: 100 }));
+      (rep.extra.badges || []).forEach(function (bd) {
+        body.push(p([run(bd.icon + "  ", {}), run(bd.name, { b: true }), run("   " + bd.how + (bd.date ? " · earned " + WS.nice(bd.date) : ""), { color: "5C5966", sz: 19 })], { after: 60 }));
+      });
+    }
     // month by month
     body.push(heading("Month by month"));
     var mw = [1500, 2100, PAGE - 3600];
@@ -349,7 +389,7 @@
 
   /* ---------- prompts to help people remember wins ---------- */
   WS.PROMPTS = [
-    "What did you finish today?", "Who did you help today?", "What problem did you solve?",
+    "What are you proud of today?", "What did you finish today?", "Who did you help today?", "What problem did you solve?",
     "What did a customer or colleague thank you for?", "What did you learn today?",
     "What went better than expected?", "What did you improve or simplify?", "What decision did you move forward?"
   ];
@@ -414,6 +454,27 @@
     var L = [(o.te || "✨") + " Talent moment: " + o.tn, o.title], links = linksOf(o);
     if (o.msg) L.push(o.msg);
     links.forEach(function (l, i) { L.push((links.length > 1 ? "Watch or listen (" + (i + 1) + "): " : "Watch or listen: ") + l); });
+    if (o.cheer) L.push(WS.CHEER);
+    return L.join("\n");
+  };
+
+  /* Proud moment: a win, badge or level shared to a Teams chat or channel */
+  WS.makeShare = function (o) {
+    var now = Date.now();
+    return { id: WS.newId(), d: o.d, kind: o.kind, title: String(o.title || "").slice(0, 200), to: String(o.to || "").slice(0, 120), url: WS.safeLink(o.url), ts: now, u: now };
+  };
+  WS.proudMessage = function (o) {
+    var e = WS.escHtml, parts = ["<p><b>" + e(o.icon || "🌟") + " " + e(o.heading || "Proud moment") + "</b></p>", "<p><b>" + e(o.title) + "</b></p>"];
+    if (o.detail) parts.push("<p>" + e(o.detail) + "</p>");
+    if (o.note) parts.push("<p>" + e(o.note).replace(/\r?\n/g, "<br>") + "</p>");
+    if (o.cheer) parts.push("<p>" + e(WS.CHEER) + "</p>");
+    parts.push("<p><em>Shared from Winsprout</em></p>");
+    return { body: { contentType: "html", content: parts.join("") } };
+  };
+  WS.proudText = function (o) {
+    var L = [(o.icon || "🌟") + " " + (o.heading || "Proud moment"), o.title];
+    if (o.detail) L.push(o.detail);
+    if (o.note) L.push(o.note);
     if (o.cheer) L.push(WS.CHEER);
     return L.join("\n");
   };

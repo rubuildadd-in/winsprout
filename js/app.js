@@ -9,7 +9,7 @@
   // Opened from the Teams app tab (?host=teams): one page with Winsprout's own tab row, so switching is instant
   var IN_TEAMS_TAB = (function () { try { return new URLSearchParams(location.search).get("host") === "teams"; } catch (e) { return false; } })();
   if (IN_TEAMS_TAB) document.documentElement.classList.add("ws-teams");
-  var DEFAULT = { v: 1, settings: { workdays: [1, 2, 3, 4, 5], weeklyGoal: 5, reminder: "17:30", name: "", u: 0 }, wins: [], talents: [], shows: [] };
+  var DEFAULT = { v: 1, settings: { workdays: [1, 2, 3, 4, 5], weeklyGoal: 5, reminder: "17:30", name: "", u: 0 }, wins: [], talents: [], shows: [], shares: [] };
   var data = normalise(SY.load()) || JSON.parse(JSON.stringify(DEFAULT));
   var ui = { view: "today", weekOf: TODAY, logDay: TODAY, editing: null, cat: "delivered", imp: 2, period: "last12", from: "", to: "",
     share: { tid: "", title: "", msg: "", links: [""], images: [], cheer: true, copied: false, needIT: false, kind: "chat", chatId: "", teamId: "", channelId: "", chats: null, teams: null, channels: {}, ready: null, checked: false, loading: false, posting: false, err: "" } };
@@ -19,6 +19,7 @@
     d.settings = Object.assign({}, DEFAULT.settings, d.settings || {});
     if (!Array.isArray(d.talents)) d.talents = [];
     if (!Array.isArray(d.shows)) d.shows = [];
+    if (!Array.isArray(d.shares)) d.shares = [];
     d.v = 1;
     return d;
   }
@@ -94,21 +95,40 @@
       })(t0);
     };
     // "New badge" celebration card (also announced to screen readers)
-    api.badge = function (b) {
+    function card(icon, small, title, sub, onShare) {
       var old = $("fxBadge"); if (old) old.remove();
-      var card = h("div", { id: "fxBadge", class: "fxbadge", role: "status" }, [
-        h("span", { class: "fxicon", "aria-hidden": "true", text: b.icon }),
-        h("div", null, [h("small", { text: "New badge" }), h("b", { text: b.name }), h("span", { class: "small muted", text: b.how })]),
-        h("button", { class: "icon", type: "button", "aria-label": "Close", onclick: function () { card.remove(); } }, ["✕"])
+      var c = h("div", { id: "fxBadge", class: "fxbadge", role: "status" }, [
+        h("span", { class: "fxicon", "aria-hidden": "true", text: icon }),
+        h("div", null, [h("small", { text: small }), h("b", { text: title }), h("span", { class: "small muted", text: sub })]),
+        onShare ? h("button", { class: "btn small", type: "button", onclick: function () { c.remove(); onShare(); } }, ["📣 Share"]) : null,
+        h("button", { class: "icon", type: "button", "aria-label": "Close", onclick: function () { c.remove(); } }, ["✕"])
       ]);
-      document.body.appendChild(card);
+      document.body.appendChild(c);
       if (!calm) api.burst(null, 2);
-      setTimeout(function () { card.classList.add("out"); setTimeout(function () { card.remove(); }, 400); }, 4200);
+      var t = setTimeout(function () { c.classList.add("out"); setTimeout(function () { c.remove(); }, 400); }, 6500);
+      c.addEventListener("mouseenter", function () { clearTimeout(t); });
+      c.addEventListener("focusin", function () { clearTimeout(t); });
+    }
+    api.badge = function (b) { card(b.icon, "New badge", b.name, b.how, function () { shareBadge(b); }); };
+    api.levelUp = function (L, b) {
+      card(L.icon, "You grew!", "Level " + L.n + ": " + L.name, b ? "Plus a new badge: " + b.icon + " " + b.name : (L.next ? L.next.left + " points to " + L.next.name : "Top level reached"), function () {
+        openShare({ kind: "level", icon: L.icon, heading: "I grew in Winsprout", title: L.icon + " " + L.name + " (level " + L.n + " of " + WS.LEVELS.length + ")", detail: L.points + " points from my wins at work" });
+      });
     };
     return api;
   })();
 
   function plural(n, w) { return n + " " + w + (n === 1 ? "" : "s"); }
+  function allBadges() { return WS.badges(data.wins, TODAY, settings().workdays, data.shows, data.shares); }
+  function curLevel() { return WS.level(WS.points(data.wins, data.shows)); }
+  function snapshot() { var had = {}; allBadges().forEach(function (b) { if (b.got) had[b.id] = 1; }); return { had: had, level: curLevel().n }; }
+  // after something is saved: celebrate a new level first, then a new badge; otherwise show the normal message
+  function celebrate(before, fallback) {
+    var L = curLevel(), fresh = allBadges().filter(function (b) { return b.got && !before.had[b.id]; });
+    if (L.n > before.level) fx.levelUp(L, fresh[0]);
+    else if (fresh.length) fx.badge(fresh[0]);
+    else if (fallback) toast(fallback);
+  }
 
   /* ---------- tabs ---------- */
   var VIEWS = ["today", "week", "report", "talents", "badges", "settings"];
@@ -193,6 +213,7 @@
       ]),
       h("div", { class: "goal" }, [goalRing(wk.total, s.weeklyGoal), h("span", { class: "small muted", text: "this week" })])
     ]));
+    root.appendChild(levelBar(curLevel(), false));
 
     // log form
     var input = h("textarea", { id: "winText", rows: 2, maxlength: 500, placeholder: prompt, "aria-label": "What did you get done?" });
@@ -208,7 +229,7 @@
     dayInput.addEventListener("change", function () { if (dayInput.value && dayInput.value <= TODAY) { ui.logDay = dayInput.value; render(); } });
     var add = h("button", { class: "btn", type: "submit" }, ["Add win"]);
     var form = h("form", { class: "card log", "aria-label": "Log a win" }, [
-      h("label", { for: "winText", class: "lbl", text: ui.logDay === TODAY ? "What did you get done today?" : "What did you get done on " + WS.nice(ui.logDay) + "?" }),
+      h("label", { for: "winText", class: "lbl", text: ui.logDay === TODAY ? "What are you proud of today?" : "What did you get done on " + WS.nice(ui.logDay) + "?" }),
       input, catRow,
       h("div", { class: "row between wrap" }, [h("div", { class: "row" }, [h("span", { class: "small muted", text: "Size" }), impRow]), h("div", { class: "row wrap" }, [dayInput, add])])
     ]);
@@ -226,21 +247,18 @@
   function addWin(text) {
     text = String(text || "").trim();
     if (!text) { toast("Write a few words about your win first."); $("winText").focus(); return; }
-    var had = {};
-    WS.badges(data.wins, TODAY, settings().workdays, data.shows).forEach(function (b) { if (b.got) had[b.id] = 1; });
+    var before = snapshot();
     var nw = WS.makeWin(ui.logDay, text, ui.cat, ui.imp), big = nw.imp === 3, prevStreak = WS.streak(data.wins, TODAY, settings().workdays);
     data.wins.push(nw); fx.newId = nw.id;
     save();
     var addBtn = document.querySelector(".log .btn[type=submit]"), origin = addBtn ? addBtn.getBoundingClientRect() : null;
-    var fresh = WS.badges(data.wins, TODAY, settings().workdays, data.shows).filter(function (b) { return b.got && !had[b.id]; });
     var st = WS.streak(data.wins, TODAY, settings().workdays);
     ui.imp = 2;
     render();
     fx.newId = null; // the slide-in plays once
     fx.burst(origin, big ? 2 : 1);
     if (st > prevStreak) fx.bump(document.querySelector(".hero .muted"));
-    if (fresh.length) fx.badge(fresh[0]);
-    else toast(big ? "🚀 Big win saved!" + (st > 1 ? " " + st + "-day streak." : "") : (st > 1 ? "🌱 Win saved. " + st + "-day streak!" : "🌱 Win saved."));
+    celebrate(before, big ? "🚀 Big win saved. Be proud of this one!" + (st > 1 ? " " + st + "-day streak." : "") : (st > 1 ? "🌱 Win saved. " + st + "-day streak!" : "🌱 Win saved."));
     var t = $("winText"); if (t) t.focus();
   }
 
@@ -268,6 +286,9 @@
         h("span", { class: "wico", "aria-hidden": "true", text: c.emoji }),
         h("div", { class: "wbody" }, [h("p", { class: "wtext", text: w.t }), h("p", { class: "small muted", text: c.label + " · " + WS.IMPACT[w.imp] + (ui.view !== "today" ? " · " + WS.short(w.d) : "") })]),
         h("div", { class: "wact" }, [
+          h("button", { class: "icon share", type: "button", title: "Share as a proud moment", "aria-label": "Share as a proud moment: " + w.t, onclick: function () {
+            openShare({ kind: "win", icon: w.imp === 3 ? "🚀" : "🌟", heading: "Proud moment", title: w.t, detail: c.label + (w.imp === 3 ? " · Big win" : "") + " · " + WS.nice(w.d) });
+          } }, ["📣"]),
           h("button", { class: "icon", type: "button", "aria-label": "Edit: " + w.t, onclick: function () { ui.editing = w.id; render(); } }, ["✎"]),
           h("button", { class: "icon", type: "button", "aria-label": "Delete: " + w.t, onclick: function () {
             ask("Delete this win?", "Delete", function () { w.del = true; w.u = Date.now(); save(); render(); toast("Deleted."); });
@@ -423,6 +444,9 @@
 
   function reportName(rep) { return "Winsprout achievements " + rep.from + " to " + rep.to + ".docx"; }
   function wordReport(rep, cloud) {
+    var dates = WS.badgeDates(data.wins, settings().workdays, data.shows, data.shares);
+    rep.extra = { level: curLevel(), badges: allBadges().filter(function (b) { return b.got && dates[b.id] && dates[b.id] >= rep.from && dates[b.id] <= rep.to; })
+      .map(function (b) { return { icon: b.icon, name: b.name, how: b.how, date: dates[b.id] }; }) };
     var bytes = WS.reportDocx(rep, settings().name);
     if (cloud) {
       toast("Saving to your OneDrive…");
@@ -683,17 +707,17 @@
         sh.err = "";
         SY.connectShare().then(function () { sh.ready = true; sh.needIT = false; loadDest(); }, function (e) {
           var m = String(e && (e.errorCode || e.message) || "");
-          if (/user_cancelled|popup_window_error|cancel/i.test(m) && !/AADSTS/.test(m)) { sh.err = "Permission wasn't given. Press the button again when you're ready."; render(); return; }
+          if (/user_cancelled|popup_window_error|cancel/i.test(m) && !/AADSTS/.test(m)) { sh.err = "Permission wasn't given. Press the button again when you're ready."; refreshDest(); return; }
           sh.needIT = true;
           sh.err = "Microsoft didn't allow Winsprout to post for you. Your company probably needs IT to approve it first (see below). You can still copy your post.";
-          render();
+          refreshDest();
         });
       } }, ["Choose a chat or channel"]));
       return box;
     }
     var seg = h("div", { class: "seg", role: "radiogroup", "aria-label": "Share to" });
     [["chat", "A chat"], ["channel", "A team channel"]].forEach(function (k) {
-      seg.appendChild(h("button", { type: "button", role: "radio", "aria-checked": sh.kind === k[0] ? "true" : "false", onclick: function () { sh.kind = k[0]; render(); } }, [k[1]]));
+      seg.appendChild(h("button", { type: "button", role: "radio", "aria-checked": sh.kind === k[0] ? "true" : "false", onclick: function () { sh.kind = k[0]; refreshDest(); } }, [k[1]]));
     });
     box.appendChild(seg);
     if (sh.loading) { box.appendChild(h("p", { class: "small muted", text: "Loading your chats and teams…" })); return box; }
@@ -707,7 +731,7 @@
       var ts = h("select", { id: "shTeam", "aria-label": "Team" });
       ts.appendChild(h("option", { value: "", text: (sh.teams && sh.teams.length) ? "Choose a team…" : "You're not in any teams" }));
       (sh.teams || []).forEach(function (t) { var o = h("option", { value: t.id, text: t.label }); if (t.id === sh.teamId) o.selected = true; ts.appendChild(o); });
-      ts.addEventListener("change", function () { sh.teamId = ts.value; sh.channelId = ""; if (sh.teamId && !sh.channels[sh.teamId]) loadChannels(sh.teamId); else render(); });
+      ts.addEventListener("change", function () { sh.teamId = ts.value; sh.channelId = ""; if (sh.teamId && !sh.channels[sh.teamId]) loadChannels(sh.teamId); else refreshDest(); });
       box.appendChild(ts);
       if (sh.teamId) {
         var list = sh.channels[sh.teamId];
@@ -722,15 +746,15 @@
   }
 
   function loadDest() {
-    var sh = ui.share; sh.loading = true; if (ui.view === "talents") render();
+    var sh = ui.share; sh.loading = true; refreshDest();
     Promise.all([SY.listChats().catch(function () { return []; }), SY.listTeams().catch(function () { return []; })]).then(function (r) {
-      sh.chats = r[0]; sh.teams = r[1]; sh.loading = false; if (ui.view === "talents") render();
+      sh.chats = r[0]; sh.teams = r[1]; sh.loading = false; refreshDest();
     });
   }
   function loadChannels(teamId) {
-    render();
+    refreshDest();
     SY.listChannels(teamId).then(function (list) { ui.share.channels[teamId] = list; }, function () { ui.share.channels[teamId] = []; toast("Couldn't load channels for that team."); })
-      .then(function () { if (ui.view === "talents") render(); });
+      .then(function () { refreshDest(); });
   }
 
   function destLabel() {
@@ -752,8 +776,7 @@
   function doPost(dest, label, f) {
     var sh = ui.share;
     sh.posting = true; sh.err = ""; render();
-    var had = {};
-    WS.badges(data.wins, TODAY, settings().workdays, data.shows).forEach(function (b) { if (b.got) had[b.id] = 1; });
+    var had = snapshot();
     SY.post(dest, WS.talentMessage(f)).then(function (res) {
       sh.posting = false;
       recordShow(f, label, res && res.webUrl, had);
@@ -777,15 +800,13 @@
 
   function recordShow(f, label, url, had) {
     var sh = ui.share;
-    if (!had) { had = {}; WS.badges(data.wins, TODAY, settings().workdays, data.shows).forEach(function (b) { if (b.got) had[b.id] = 1; }); }
+    var before = had || snapshot();
     data.shows.push(WS.makeShow({ d: TODAY, tn: f.tn, te: f.te, title: f.title, msg: f.msg, links: f.links, images: f.images, to: label, url: url }));
     save();
     sh.title = ""; sh.msg = ""; sh.links = [""]; sh.images = []; sh.copied = false; sh.err = "";
-    var fresh = WS.badges(data.wins, TODAY, settings().workdays, data.shows).filter(function (b) { return b.got && !had[b.id]; });
     render();
     fx.burst(null, 2);
-    if (fresh.length) fx.badge(fresh[0]);
-    else toast(url ? "🎉 Posted to " + label + "." : "Added to your talent moments.");
+    celebrate(before, url ? "🎉 Posted to " + label + "." : "Added to your talent moments.");
   }
 
   /* Help for companies where IT must approve Winsprout */
@@ -836,19 +857,137 @@
   }
 
   /* ---------- BADGES ---------- */
+  function levelBar(L, big) {
+    var nextTxt = L.next ? L.next.left + " points to " + L.next.icon + " " + L.next.name : "Top level reached. Amazing!";
+    return h("div", { class: "level" + (big ? " big" : "") }, [
+      h("span", { class: "lvicon", "aria-hidden": "true", text: L.icon }),
+      h("div", { class: "lvbody" }, [
+        h("div", { class: "lvtop" }, [h("b", { text: (big ? "Level " + L.n + " of " + WS.LEVELS.length + ": " : "") + L.name }), h("span", { class: "small muted", text: L.points + " points · " + nextTxt })]),
+        h("div", { class: "lvbar", role: "progressbar", "aria-label": "Progress to next level", "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": String(L.pct) }, [h("span", { style: "width:" + L.pct + "%" })])
+      ])
+    ]);
+  }
+
   function renderBadges(root) {
-    var list = WS.badges(data.wins, TODAY, settings().workdays, data.shows), got = list.filter(function (b) { return b.got; }).length;
-    root.appendChild(h("h1", { text: "Badges" }));
-    root.appendChild(h("p", { class: "muted", text: got + " of " + list.length + " earned · " + plural(WS.live(data.wins).length, "win") + " so far · best streak " + WS.bestStreak(data.wins, settings().workdays) }));
+    var list = allBadges(), got = list.filter(function (b) { return b.got; }).length, L = curLevel();
+    var dates = WS.badgeDates(data.wins, settings().workdays, data.shows, data.shares);
+    root.appendChild(h("h1", { text: "Badges and growth" }));
+    var lv = h("div", { class: "card" }, [levelBar(L, true),
+      h("p", { class: "small muted", text: "Every win helps you grow: Small 1 point, Solid 2, Big 3, and 3 for each talent moment you share." })]);
+    if (L.n > 1) lv.appendChild(h("button", { class: "btn ghost small", type: "button", onclick: function () {
+      openShare({ kind: "level", icon: L.icon, heading: "I grew in Winsprout", title: L.icon + " " + L.name + " (level " + L.n + " of " + WS.LEVELS.length + ")", detail: L.points + " points from my wins at work" });
+    } }, ["📣 Share my level"]));
+    root.appendChild(lv);
+    root.appendChild(h("p", { class: "muted", text: got + " of " + list.length + " badges earned · " + plural(WS.live(data.wins).length, "win") + " so far · best streak " + WS.bestStreak(data.wins, settings().workdays) }));
+    var next = list.filter(function (b) { return !b.got; }).sort(function (a, b) { return b.cur / b.target - a.cur / a.target || a.left - b.left; }).slice(0, 3);
+    if (next.length) {
+      root.appendChild(h("h2", { text: "Next up" }));
+      var nu = h("ul", { class: "badges next" });
+      next.forEach(function (b) { nu.appendChild(badgeTile(b, dates)); });
+      root.appendChild(nu);
+    }
+    root.appendChild(h("h2", { text: "All badges" }));
     var grid = h("ul", { class: "badges" });
-    list.forEach(function (b) {
-      grid.appendChild(h("li", { class: "badge" + (b.got ? " got" : "") }, [
-        h("span", { class: "bicon", "aria-hidden": "true", text: b.got ? b.icon : "🔒" }),
-        h("b", { text: b.name }), h("small", { text: b.how }),
-        h("span", { class: "sr", text: b.got ? "Earned" : "Not earned yet" })
-      ]));
-    });
+    list.slice().sort(function (a, b) { return (b.got ? 1 : 0) - (a.got ? 1 : 0); }).forEach(function (b) { grid.appendChild(badgeTile(b, dates)); });
     root.appendChild(grid);
+  }
+  function badgeTile(b, dates) {
+    var kids = [h("span", { class: "bicon", "aria-hidden": "true", text: b.icon }), h("b", { text: b.name }), h("small", { text: b.how })];
+    if (b.got) {
+      if (dates[b.id]) kids.push(h("small", { class: "earned", text: "Earned " + WS.nice(dates[b.id]) }));
+      kids.push(h("button", { class: "btn ghost small", type: "button", "aria-label": "Share badge: " + b.name, onclick: function () { shareBadge(b); } }, ["📣 Share"]));
+    } else {
+      var pct = Math.round(b.cur / b.target * 100);
+      kids.push(h("span", { class: "bprog", "aria-hidden": "true" }, [h("span", { style: "width:" + pct + "%" })]));
+      kids.push(h("small", { class: "left", text: b.target > 1 ? b.cur + " of " + b.target + " · " + b.left + " to go" : "Not yet" }));
+    }
+    kids.push(h("span", { class: "sr", text: b.got ? "Earned" : "Not earned yet" }));
+    return h("li", { class: "badge" + (b.got ? " got" : "") }, kids);
+  }
+  function shareBadge(b) {
+    openShare({ kind: "badge", icon: "🏅", heading: "I earned a badge in Winsprout", title: b.icon + " " + b.name, detail: b.how });
+  }
+
+  /* ---------- SHARE A PROUD MOMENT (win, badge or level) ---------- */
+  var shareItem = null, shareBack = null;
+  function openShare(item) {
+    shareBack = document.activeElement;
+    shareItem = Object.assign({ note: "", cheer: true, copied: false, err: "", posting: false }, item);
+    var sh = ui.share;
+    if (SY.canShare() && !sh.checked) { sh.checked = true; SY.shareReady().then(function (ok) { if (ok) { sh.ready = true; loadDest(); } }); }
+    renderShareModal(true);
+  }
+  function closeShare() {
+    shareItem = null; var m = $("shareModal"); if (m) m.remove();
+    document.removeEventListener("keydown", shareKeys, true);
+    if (shareBack && shareBack.focus && document.body.contains(shareBack)) shareBack.focus();
+  }
+  function shareKeys(e) { if (e.key === "Escape" && shareItem) { e.preventDefault(); closeShare(); } }
+  function refreshDest() { if (shareItem) renderShareModal(false); else if (ui.view === "talents") render(); }
+  function proudFields() { var it = shareItem; return { icon: it.icon, heading: it.heading, title: it.title, detail: it.detail, note: it.note.trim(), cheer: it.cheer }; }
+  function renderShareModal(first) {
+    var it = shareItem; if (!it) return;
+    var focusId = !first && document.activeElement && document.activeElement.id;
+    var old = $("shareModal"); if (old) old.remove();
+    var f = proudFields(), sh = ui.share;
+    var pv = h("div", { class: "preview", id: "spPreview" });
+    function drawPreview() {
+      var g = proudFields(); pv.textContent = "";
+      pv.appendChild(h("p", null, [h("b", { text: g.icon + " " + g.heading })])); pv.appendChild(h("p", null, [h("b", { text: g.title })]));
+      if (g.detail) pv.appendChild(h("p", { class: "small muted", text: g.detail }));
+      if (g.note) g.note.split(/\r?\n/).forEach(function (l) { pv.appendChild(h("p", { text: l })); });
+      if (g.cheer) pv.appendChild(h("p", { text: WS.CHEER }));
+      pv.appendChild(h("p", { class: "small muted" }, [h("em", { text: "Shared from Winsprout" })]));
+    }
+    drawPreview();
+    var note = h("textarea", { id: "spNote", rows: 2, maxlength: 400, placeholder: "Add a few words, e.g. thanks to the team who helped (optional)" }); note.value = it.note;
+    note.addEventListener("input", function () { it.note = note.value; drawPreview(); });
+    var cheer = h("input", { type: "checkbox", id: "spCheer" }); cheer.checked = it.cheer;
+    cheer.addEventListener("change", function () { it.cheer = cheer.checked; drawPreview(); });
+    var canPost = SY.canShare() && sh.ready === true, label = destLabel();
+    var box = h("div", { class: "askbox sharebox", role: "dialog", "aria-modal": "true", "aria-labelledby": "spTitle" }, [
+      h("div", { class: "row between" }, [h("h2", { id: "spTitle", text: "📣 Share a proud moment" }), h("button", { class: "icon", type: "button", "aria-label": "Close", onclick: closeShare }, ["✕"])]),
+      h("p", { class: "small muted", text: "Post it to your manager, your team or any chat you choose. It goes from your own account, only when you press Post." }),
+      pv,
+      h("label", { for: "spNote", class: "lbl", text: "A few words (optional)" }), note,
+      h("label", { class: "check", for: "spCheer" }, [cheer, " Invite colleagues to react and reply"]),
+      h("h3", { class: "lbl", text: "Where to share" }), destination()
+    ]);
+    if (it.err) box.appendChild(h("p", { class: "small warn", role: "alert", text: it.err }));
+    var acts = h("div", { class: "row wrap actions" }, [
+      canPost ? h("button", { class: "btn", type: "button", id: "spPost", disabled: it.posting || !label ? true : null, onclick: postProud }, [it.posting ? "Posting…" : label ? "Post to " + label : "Choose where to post"]) : null,
+      h("button", { class: canPost ? "btn ghost" : "btn", type: "button", onclick: function () { it.copied = true; copyText(WS.proudText(proudFields()), "Copied. Paste it into any Teams chat or email."); renderShareModal(false); } }, ["Copy"]),
+      it.copied ? h("button", { class: "btn ghost", type: "button", onclick: function () { recordShare("Shared by me", ""); } }, ["I shared it myself"]) : null
+    ]);
+    box.appendChild(acts);
+    // re-render the modal when the chat/team pickers change, so the Post button shows where it goes
+    box.addEventListener("change", function (e) { if (e.target && /^(shChat|shTeam|shChannel)$/.test(e.target.id)) setTimeout(function () { renderShareModal(false); var el = $(e.target.id); if (el) el.focus(); }, 0); });
+    var wrap = h("div", { id: "shareModal", class: "ask share" }, [box]);
+    wrap.addEventListener("click", function (e) { if (e.target === wrap) closeShare(); });
+    document.body.appendChild(wrap);
+    document.addEventListener("keydown", shareKeys, true);
+    var fe = focusId && $(focusId); if (fe) fe.focus(); else if (first) note.focus();
+  }
+  function postProud() {
+    var it = shareItem, sh = ui.share; if (!it || it.posting) return;
+    var dest = sh.kind === "chat" ? { kind: "chat", chatId: sh.chatId } : { kind: "channel", teamId: sh.teamId, channelId: sh.channelId };
+    var label = destLabel(); if (!label) { toast("Choose where to post first."); return; }
+    it.posting = true; it.err = ""; renderShareModal(false);
+    SY.post(dest, WS.proudMessage(proudFields())).then(function (res) { recordShare(label, res && res.webUrl); }, function (e) {
+      if (!shareItem) return;
+      it.posting = false;
+      if (e && e.status === 403) sh.needIT = true;
+      it.err = e && e.status === 403 ? "Teams didn't allow this post. Your company may need IT to approve Winsprout, or you can't post there. Use Copy instead." : "Couldn't post right now. Try again, or use Copy.";
+      renderShareModal(false);
+    });
+  }
+  function recordShare(label, url) {
+    var it = shareItem; if (!it) return;
+    var before = snapshot();
+    data.shares.push(WS.makeShare({ d: TODAY, kind: it.kind, title: it.title, to: label, url: url }));
+    save(); closeShare(); render();
+    fx.burst(null, 2);
+    celebrate(before, url ? "🎉 Shared with " + label + ". Be proud!" : "Saved to your proud moments.");
   }
 
   /* ---------- SETTINGS ---------- */
