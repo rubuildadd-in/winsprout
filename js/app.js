@@ -6,6 +6,9 @@
   var TODAY = WS.key(new Date());
   var TAB = (function () { try { var v = new URLSearchParams(location.search).get("view"); return ["today", "week", "report", "talents", "badges", "settings"].indexOf(v) >= 0 ? v : ""; } catch (e) { return ""; } })();
   if (TAB) document.documentElement.classList.add("ws-tab");
+  // Opened from the Teams app tab (?host=teams): one page with Winsprout's own tab row, so switching is instant
+  var IN_TEAMS_TAB = (function () { try { return new URLSearchParams(location.search).get("host") === "teams"; } catch (e) { return false; } })();
+  if (IN_TEAMS_TAB) document.documentElement.classList.add("ws-teams");
   var DEFAULT = { v: 1, settings: { workdays: [1, 2, 3, 4, 5], weeklyGoal: 5, reminder: "17:30", name: "", u: 0 }, wins: [], talents: [], shows: [] };
   var data = normalise(SY.load()) || JSON.parse(JSON.stringify(DEFAULT));
   var ui = { view: "today", weekOf: TODAY, logDay: TODAY, editing: null, cat: "delivered", imp: 2, period: "last12", from: "", to: "",
@@ -899,7 +902,7 @@
   }
 
   /* ---------- start ---------- */
-  ui.view = TAB || (VIEWS.indexOf(SY.get("view", "today")) >= 0 ? SY.get("view", "today") : "today");
+  ui.view = TAB || (IN_TEAMS_TAB ? "today" : (VIEWS.indexOf(SY.get("view", "today")) >= 0 ? SY.get("view", "today") : "today"));
   // another Teams tab may have changed the data: refresh when this tab is shown again
   document.addEventListener("visibilitychange", function () {
     if (document.visibilityState !== "visible") return;

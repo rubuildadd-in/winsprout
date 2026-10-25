@@ -115,6 +115,12 @@ input[type=file]{max-width:100%;min-width:0}
 /* Inside Teams: Teams shows the app name, icon and tabs, so hide ours */
 .ws-tab .brand,.ws-tab .tabs,.ws-tab .weblink{display:none}
 .ws-tab .top{justify-content:flex-end;padding-top:10px}
+/* One Teams tab with Winsprout's own tab row: hide only the duplicate logo header and footer link */
+.ws-teams .brand,.ws-teams .weblink{display:none}
+.ws-teams .top{position:absolute;right:max(16px,env(safe-area-inset-right,0px));top:8px;padding:0}
+.ws-teams body,.ws-teams{position:relative}
+.ws-teams .tabs{padding-right:190px;margin-top:4px}
+@media (max-width:520px){.ws-teams .top{position:static;justify-content:flex-end;padding-top:8px}.ws-teams .tabs{padding-right:0}}
 .popout{font-size:.9em}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 @media (max-width:520px){
