@@ -388,7 +388,7 @@
     root.appendChild(row);
 
     root.appendChild(h("div", { class: "tiles" }, [
-      tile(rep.total, "wins", WS.short(rep.from) + " – " + WS.short(rep.to)),
+      tile(rep.total, "wins", WS.nice(rep.from) + " – " + WS.nice(rep.to)),
       tile(rep.big.length, "big wins", ""),
       tile(rep.activeDays, "days with wins", ""),
       tile(WS.bestStreak(rep.list, settings().workdays), "best streak", "")
@@ -460,9 +460,9 @@
     return L.join("\n");
   }
   function copyReport(rep) { copyText(reportText(rep), "Report copied. Paste it into Word, Outlook or your appraisal form.", true); }
-  function copyText(text, okMsg) {
+  function copyText(text, okMsg, html) {
     var done = false;
-    function onCopy(e) { try { e.clipboardData.setData("text/plain", text); e.preventDefault(); done = true; } catch (x) { done = false; } }
+    function onCopy(e) { try { e.clipboardData.setData("text/plain", text); if (html) e.clipboardData.setData("text/html", html); e.preventDefault(); done = true; } catch (x) { done = false; } }
     document.addEventListener("copy", onCopy);
     try { document.execCommand("copy"); } catch (e) { /* not allowed */ }
     document.removeEventListener("copy", onCopy);
@@ -514,11 +514,18 @@
         ]));
       });
       card.appendChild(ul);
-      card.appendChild(h("button", { class: "btn ghost small", type: "button", onclick: function () {
-        var L = [(settings().name ? settings().name + "'s" : "My") + " talents"];
-        mine.forEach(function (t) { L.push(t.e + " " + t.n + (t.note ? " — " + t.note : "")); });
-        copyText(L.join("\n"), "Talent card copied. Paste it in your Teams chat or profile.");
-      } }, ["Copy my talent card"]));
+      var line = h("input", { type: "text", id: "talentLine", maxlength: 140, value: settings().talentLine || "", placeholder: "e.g. Happy to tell a story at our next team event!" });
+      line.addEventListener("input", function () { settings().talentLine = line.value; cardPreview(); });
+      line.addEventListener("change", function () { settings().talentLine = line.value.trim(); settings().u = Date.now(); save(); });
+      card.appendChild(h("label", { for: "talentLine", class: "lbl", text: "A line for your talent card (optional)" }));
+      card.appendChild(line);
+      card.appendChild(h("p", { class: "lbl", id: "tcLabel", text: "Your talent card" }));
+      card.appendChild(h("div", { class: "preview tcard", id: "tcPreview", role: "region", "aria-labelledby": "tcLabel" }));
+      card.appendChild(h("div", { class: "row wrap actions" }, [h("button", { class: "btn small", type: "button", onclick: function () {
+        var c = WS.talentCard(settings().name, data.talents, data.shows, (settings().talentLine || "").trim());
+        copyText(c.text, "Talent card copied. Paste it in a Teams chat, Outlook or your profile.", c.html);
+      } }, ["Copy my talent card"]), h("span", { class: "small muted", text: "Pastes with formatting in Teams and Outlook." })]));
+      setTimeout(cardPreview, 0);
     } else card.appendChild(h("p", { class: "empty", text: "Pick one or more talents above. Only you see this list until you share something." }));
     root.appendChild(card);
 
@@ -583,6 +590,13 @@
       sh.checked = true;
       SY.shareReady().then(function (ok) { if (ok) { sh.ready = true; loadDest(); } });
     }
+  }
+
+  function cardPreview() {
+    var box = $("tcPreview"); if (!box) return;
+    var c = WS.talentCard(settings().name, data.talents, data.shows, (settings().talentLine || "").trim());
+    box.innerHTML = c.html; // built from escaped text only (WS.escHtml), links limited to https
+    box.querySelectorAll("a").forEach(function (a) { a.target = "_blank"; a.rel = "noopener"; });
   }
 
   function toggleTalent(name) {
@@ -823,7 +837,13 @@
     } else {
       store.appendChild(h("p", { text: "Right now your wins are saved only in this browser on this device. Connect your OneDrive to keep them safe and use them on other devices." }));
       if (st.pca) store.appendChild(h("button", { class: "btn", type: "button", onclick: function () {
-        SY.connect().then(function (merged) { if (merged) { data = normalise(merged) || data; toast("Connected. Your wins are now backed up to OneDrive."); render(); renderPill(); } }, function () { toast("Couldn't connect to OneDrive. You can keep using Winsprout on this device."); });
+        SY.connect().then(function (merged) {
+          if (merged) {
+            data = normalise(merged) || data;
+            var acc = SY.status().account;
+            if (!settings().name && acc && acc.name) { settings().name = acc.name; settings().u = Date.now(); save(); }
+            toast("Connected. Your wins are now backed up to OneDrive."); render(); renderPill();
+          } }, function () { toast("Couldn't connect to OneDrive. You can keep using Winsprout on this device."); });
       } }, ["Back up to my OneDrive"]));
       else store.appendChild(h("p", { class: "small muted", text: "OneDrive backup is available when Winsprout is opened inside Microsoft Teams with a work or school account." }));
       if (st.lastError) store.appendChild(h("p", { class: "small warn", text: st.lastError }));

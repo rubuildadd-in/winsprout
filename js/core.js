@@ -192,47 +192,109 @@
     return '<w:p>' + (style ? '<w:pPr><w:pStyle w:val="' + style + '"/></w:pPr>' : '') +
       '<w:r>' + (bold ? '<w:rPr><w:b/></w:rPr>' : '') + '<w:t xml:space="preserve">' + esc(text) + '</w:t></w:r></w:p>';
   }
+  /* Report layout: title block, "at a glance" number boxes, highlights, type-of-work table, talents, month-by-month tables */
+  var PAGE = 9638; // A4 width minus margins, in twentieths of a point
+  function run(text, o) {
+    o = o || {};
+    var pr = (o.b ? '<w:b/>' : '') + (o.i ? '<w:i/>' : '') + (o.color ? '<w:color w:val="' + o.color + '"/>' : '') + (o.sz ? '<w:sz w:val="' + o.sz + '"/><w:szCs w:val="' + o.sz + '"/>' : '');
+    return '<w:r>' + (pr ? '<w:rPr>' + pr + '</w:rPr>' : '') + '<w:t xml:space="preserve">' + esc(text) + '</w:t></w:r>';
+  }
+  function p(runs, o) {
+    o = o || {};
+    var pp = (o.style ? '<w:pStyle w:val="' + o.style + '"/>' : '') + (o.keep ? '<w:keepNext/>' : '') +
+      '<w:spacing w:before="' + (o.before || 0) + '" w:after="' + (o.after === undefined ? 80 : o.after) + '"/>' + (o.jc ? '<w:jc w:val="' + o.jc + '"/>' : '');
+    return '<w:p><w:pPr>' + pp + '</w:pPr>' + (typeof runs === "string" ? runs : runs.join("")) + '</w:p>';
+  }
+  function cell(width, content, o) {
+    o = o || {};
+    return '<w:tc><w:tcPr><w:tcW w:w="' + width + '" w:type="dxa"/>' + (o.fill ? '<w:shd w:val="clear" w:color="auto" w:fill="' + o.fill + '"/>' : '') +
+      '<w:vAlign w:val="' + (o.v || "top") + '"/></w:tcPr>' + content + '</w:tc>';
+  }
+  function table(widths, rows, o) {
+    o = o || {};
+    var border = o.noBorder ? 'nil' : 'single', bc = o.borderColor || 'E4E2E9';
+    var b = function (side) { return '<w:' + side + ' w:val="' + border + '" w:sz="4" w:space="0" w:color="' + bc + '"/>'; };
+    return '<w:tbl><w:tblPr><w:tblW w:w="' + PAGE + '" w:type="dxa"/><w:tblLayout w:type="fixed"/><w:tblBorders>' + b("top") + b("left") + b("bottom") + b("right") + b("insideH") + b("insideV") +
+      '</w:tblBorders><w:tblCellMar><w:top w:w="' + (o.pad || 70) + '" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="' + (o.pad || 70) + '" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tblCellMar></w:tblPr>' +
+      '<w:tblGrid>' + widths.map(function (w) { return '<w:gridCol w:w="' + w + '"/>'; }).join("") + '</w:tblGrid>' +
+      rows.map(function (r, i) { return '<w:tr>' + (i === 0 && o.header ? '<w:trPr><w:tblHeader/><w:cantSplit/></w:trPr>' : '<w:trPr><w:cantSplit/></w:trPr>') + r.join("") + '</w:tr>'; }).join("") +
+      '</w:tbl>' + p("", { after: 0 });
+  }
+  function heading(text) { return p(run(text, { b: true, color: "4A23A8", sz: 28 }), { before: 320, after: 120, keep: true, style: "Heading1" }); }
+  function fullMonth(mk) { return ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][+mk.slice(5, 7) - 1] + " " + mk.slice(0, 4); }
+
   WS.reportDocxParts = function (rep, name) {
-    var body = [];
-    body.push(para((name ? name + " — " : "") + "My Achievements", "Title"));
-    body.push(para(WS.nice(rep.from) + " to " + WS.nice(rep.to), "Subtitle"));
-    body.push(para("Summary", "Heading1"));
-    var pl = function (n, w) { return n + " " + w + (n === 1 ? "" : "s"); };
-    body.push(para(pl(rep.total, "win") + " logged on " + pl(rep.activeDays, "day") + ", including " + pl(rep.big.length, "big win") + "."));
-    WS.CATEGORIES.forEach(function (c) { if (rep.cats[c.id]) body.push(para(c.label + ": " + rep.cats[c.id], "ListBullet")); });
+    var body = [], pl = function (n, w) { return n + " " + w + (n === 1 ? "" : "s"); };
+    // title block
+    body.push(p(run("ACHIEVEMENTS REPORT", { b: true, color: "5B2FC9", sz: 18 }), { after: 40 }));
+    body.push(p(run(name ? name : "My achievements", { b: true, color: "1F1D26", sz: 44 }), { after: 40, style: "Title" }));
+    body.push(p(run(WS.nice(rep.from) + " to " + WS.nice(rep.to), { color: "5C5966", sz: 24 }), { after: 240 }));
+    // at a glance: four number boxes
+    var w4 = Math.floor(PAGE / 4), box = function (n, label) {
+      return cell(w4, p(run(String(n), { b: true, color: "4A23A8", sz: 44 }), { after: 0 }) + p(run(label, { color: "5C5966", sz: 19 }), { after: 0 }), { fill: "F4F1FC" });
+    };
+    body.push(p(run("At a glance", { b: true, color: "1F1D26", sz: 24 }), { after: 100, keep: true }));
+    body.push(table([w4, w4, w4, PAGE - 3 * w4], [[box(rep.total, rep.total === 1 ? "win logged" : "wins logged"), box(rep.big.length, rep.big.length === 1 ? "big win" : "big wins"),
+      box(rep.activeDays, rep.activeDays === 1 ? "day with wins" : "days with wins"), box(WS.bestStreak(rep.list), "best streak (working days)")]], { borderColor: "FFFFFF", pad: 140 }));
+    // highlights
     if (rep.big.length) {
-      body.push(para("Highlights", "Heading1"));
-      rep.big.forEach(function (w) { body.push(para(WS.short(w.d) + " — " + w.t, "ListBullet")); });
+      body.push(heading("Highlights"));
+      rep.big.forEach(function (w) {
+        body.push(p([run("★  ", { color: "E9A400" }), run(w.t, { b: true }), run("   " + WS.nice(w.d) + " · " + WS.catById(w.c).label, { color: "5C5966", sz: 19 })], { after: 100 }));
+      });
     }
-    body.push(para("Month by month", "Heading1"));
+    // type of work
+    var cats = WS.CATEGORIES.filter(function (c) { return rep.cats[c.id]; });
+    if (cats.length) {
+      body.push(heading("Type of work"));
+      var cw = [5200, 2000, PAGE - 7200];
+      var rows = [[cell(cw[0], p(run("Type", { b: true, sz: 20 }), { after: 0 }), { fill: "F1EDFB" }), cell(cw[1], p(run("Wins", { b: true, sz: 20 }), { after: 0, jc: "right" }), { fill: "F1EDFB" }),
+        cell(cw[2], p(run("Share", { b: true, sz: 20 }), { after: 0, jc: "right" }), { fill: "F1EDFB" })]];
+      cats.sort(function (a, b) { return rep.cats[b.id] - rep.cats[a.id]; }).forEach(function (c) {
+        var n = rep.cats[c.id];
+        rows.push([cell(cw[0], p(run(c.label, { sz: 21 }), { after: 0 })), cell(cw[1], p(run(String(n), { sz: 21 }), { after: 0, jc: "right" })),
+          cell(cw[2], p(run(Math.round(n / rep.total * 100) + "%", { sz: 21 }), { after: 0, jc: "right" }))]);
+      });
+      body.push(table(cw, rows, { header: true }));
+    }
+    // talents
+    if (rep.shows && rep.shows.length) {
+      body.push(heading("Talents shared with colleagues"));
+      rep.shows.forEach(function (x) {
+        body.push(p([run(x.tn + ": ", { b: true }), run(x.title), run("   " + WS.nice(x.d) + (x.to && x.to !== "Posted by me" ? " · " + x.to : ""), { color: "5C5966", sz: 19 })], { after: 100 }));
+      });
+    }
+    // month by month
+    body.push(heading("Month by month"));
+    var mw = [1500, 2100, PAGE - 3600];
     rep.monthKeys.forEach(function (mk) {
       var list = rep.months[mk] || [];
       if (!list.length) return;
-      body.push(para(MON[+mk.slice(5, 7) - 1] + " " + mk.slice(0, 4) + " (" + list.length + ")", "Heading2"));
-      list.forEach(function (w) { body.push(para(WS.short(w.d) + " · " + WS.catById(w.c).label + (w.imp === 3 ? " · Big" : "") + " — " + w.t, "ListBullet")); });
+      body.push(p([run(fullMonth(mk), { b: true, color: "1F1D26", sz: 23 }), run("   " + pl(list.length, "win"), { color: "5C5966", sz: 20 })], { before: 160, after: 80, keep: true, style: "Heading2" }));
+      var rows = [[cell(mw[0], p(run("Date", { b: true, sz: 19 }), { after: 0 }), { fill: "F1EDFB" }), cell(mw[1], p(run("Type", { b: true, sz: 19 }), { after: 0 }), { fill: "F1EDFB" }),
+        cell(mw[2], p(run("Win", { b: true, sz: 19 }), { after: 0 }), { fill: "F1EDFB" })]];
+      list.forEach(function (w) {
+        rows.push([cell(mw[0], p(run(WS.short(w.d), { sz: 20, color: "5C5966" }), { after: 0 })), cell(mw[1], p(run(WS.catById(w.c).label, { sz: 20, color: "5C5966" }), { after: 0 })),
+          cell(mw[2], p(w.imp === 3 ? [run("★ ", { color: "E9A400" }), run(w.t, { b: true, sz: 21 })] : [run(w.t, { sz: 21 })], { after: 0 }))]);
+      });
+      body.push(table(mw, rows, { header: true }));
     });
-    if (rep.shows && rep.shows.length) {
-      body.push(para("Talents shared with colleagues", "Heading1"));
-      rep.shows.forEach(function (x) { body.push(para(WS.short(x.d) + " — " + x.tn + ": " + x.title + (x.to ? " (shared in " + x.to + ")" : ""), "ListBullet")); });
-    }
-    body.push(para("Created with Winsprout from my own daily notes.", "Footer"));
+    body.push(p(run("Written by me from my own daily notes, kept in Winsprout.", { i: true, color: "7A7390", sz: 17 }), { before: 360 }));
+
     var doc = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
       '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>' + body.join("") +
       '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="708" w:footer="708" w:gutter="0"/></w:sectPr></w:body></w:document>';
-    function style(id, name, size, color, bold, extra) {
-      return '<w:style w:type="paragraph" w:styleId="' + id + '"><w:name w:val="' + name + '"/><w:basedOn w:val="Normal"/>' +
-        '<w:pPr><w:spacing w:before="' + (extra || 120) + '" w:after="80"/></w:pPr><w:rPr>' + (bold ? '<w:b/>' : '') +
-        '<w:color w:val="' + color + '"/><w:sz w:val="' + size + '"/></w:rPr></w:style>';
+    function pstyle(id, nm, outline) {
+      return '<w:style w:type="paragraph" w:styleId="' + id + '"><w:name w:val="' + nm + '"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/>' +
+        (outline !== undefined ? '<w:pPr><w:keepNext/><w:outlineLvl w:val="' + outline + '"/></w:pPr>' : '') + '</w:style>';
     }
     var styles = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
-      '<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/><w:sz w:val="22"/></w:rPr></w:rPrDefault></w:docDefaults>' +
-      '<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:pPr><w:spacing w:after="80"/></w:pPr></w:style>' +
-      style("Title", "Title", 44, "4A23A8", true, 0) + style("Subtitle", "Subtitle", 24, "5E5778", false, 0) +
-      style("Heading1", "heading 1", 30, "4A23A8", true, 280) + style("Heading2", "heading 2", 24, "5B2FC9", true, 200) +
-      '<w:style w:type="paragraph" w:styleId="ListBullet"><w:name w:val="List Bullet"/><w:basedOn w:val="Normal"/><w:pPr><w:ind w:left="360" w:hanging="240"/></w:pPr></w:style>' +
-      style("Footer", "Footer Note", 18, "7A7390", false, 360) + '</w:styles>';
-    // bullets as a simple "• " prefix keeps the file small and valid without a numbering part
-    doc = doc.replace(/<w:pStyle w:val="ListBullet"\/><\/w:pPr><w:r>(<w:rPr>.*?<\/w:rPr>)?<w:t xml:space="preserve">/g, function (m) { return m + "• "; });
+      '<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Calibri" w:eastAsia="Calibri"/><w:color w:val="1F1D26"/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr></w:rPrDefault>' +
+      '<w:pPrDefault><w:pPr><w:spacing w:after="80" w:line="264" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>' +
+      '<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/></w:style>' +
+      pstyle("Title", "Title") + pstyle("Heading1", "heading 1", 0) + pstyle("Heading2", "heading 2", 1) +
+      '<w:style w:type="table" w:default="1" w:styleId="TableNormal"><w:name w:val="Normal Table"/><w:tblPr><w:tblInd w:w="0" w:type="dxa"/><w:tblCellMar><w:top w:w="0" w:type="dxa"/><w:left w:w="108" w:type="dxa"/><w:bottom w:w="0" w:type="dxa"/><w:right w:w="108" w:type="dxa"/></w:tblCellMar></w:tblPr></w:style>' +
+      '</w:styles>';
     return {
       "[Content_Types].xml": '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>',
       "_rels/.rels": '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
@@ -344,6 +406,29 @@
     if (o.msg) L.push(o.msg);
     var link = WS.safeLink(o.link); if (link) L.push("Watch or listen: " + link);
     return L.join("\n");
+  };
+
+  /* Talent card: what people paste into a Teams chat, Outlook or their profile */
+  WS.talentCard = function (name, talents, shows, line) {
+    var live = WS.live(talents), recent = WS.live(shows).slice().sort(function (a, b) { return a.d < b.d ? 1 : a.d > b.d ? -1 : 0; }).slice(0, 3);
+    var title = "🌟 " + (name ? name + "'s talents" : "My talents");
+    var T = [title, ""], e = WS.escHtml;
+    live.forEach(function (t) { T.push(t.e + " " + t.n + (t.note ? " — " + t.note : "")); });
+    if (line) T.push("", line);
+    if (recent.length) {
+      T.push("", "Recently shared:");
+      recent.forEach(function (x) { T.push("• " + x.title + " (" + WS.short(x.d) + " " + x.d.slice(0, 4) + ")" + (x.url ? " " + x.url : "")); });
+    }
+    var H = ["<p><b>" + e(title) + "</b></p>", "<ul>"];
+    live.forEach(function (t) { H.push("<li>" + e(t.e) + " <b>" + e(t.n) + "</b>" + (t.note ? " — " + e(t.note) : "") + "</li>"); });
+    H.push("</ul>");
+    if (line) H.push("<p>" + e(line) + "</p>");
+    if (recent.length) {
+      H.push("<p><i>Recently shared:</i></p><ul>");
+      recent.forEach(function (x) { var u = WS.safeLink(x.url); H.push("<li>" + (u ? '<a href="' + e(u) + '">' + e(x.title) + "</a>" : e(x.title)) + " (" + e(WS.short(x.d) + " " + x.d.slice(0, 4)) + ")</li>"); });
+      H.push("</ul>");
+    }
+    return { text: T.join("\n"), html: H.join("") };
   };
 
   g.WS = WS;
