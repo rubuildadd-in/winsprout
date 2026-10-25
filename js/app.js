@@ -822,8 +822,8 @@
   /* ---------- theme ---------- */
   function applyTheme(t) {
     var root = document.documentElement;
-    if (t === "dark") root.setAttribute("data-ws-theme", "dark");
-    else if (t === "contrast") root.setAttribute("data-ws-theme", "contrast");
+    // Always light (owner's choice). Only Teams' high-contrast mode is followed, for people with low vision.
+    if (t === "contrast") root.setAttribute("data-ws-theme", "contrast");
     else root.removeAttribute("data-ws-theme");
   }
 
