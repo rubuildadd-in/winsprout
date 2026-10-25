@@ -375,7 +375,7 @@
   WS.makeShow = function (o) {
     var now = Date.now();
     return { id: WS.newId(), d: o.d, tn: String(o.tn || "").slice(0, 40), te: o.te || "✨", title: String(o.title || "").trim().slice(0, 100),
-      msg: String(o.msg || "").trim().slice(0, 600), link: WS.safeLink(o.link), to: String(o.to || "").slice(0, 120), url: WS.safeLink(o.url), ts: now, u: now };
+      msg: String(o.msg || "").trim().slice(0, 600), link: linksOf(o)[0] || "", links: linksOf(o), photos: imagesOf(o).length, to: String(o.to || "").slice(0, 120), url: WS.safeLink(o.url), ts: now, u: now };
   };
   /* only plain https links are allowed in posts */
   WS.safeLink = function (url) {
@@ -384,27 +384,36 @@
     try { var u = new URL(url); return u.protocol === "https:" && u.hostname.indexOf(".") > 0 ? u.href : ""; } catch (e) { return ""; }
   };
   WS.escHtml = function (s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;"); };
-  /* Teams chat/channel message (Microsoft Graph chatMessage). Photo, if any, goes inline as hosted content. */
+  WS.MAX_PHOTOS = 4; WS.MAX_LINKS = 3;
+  WS.CHEER = "👏 React with 👍 or ❤️, or reply to cheer me on!";
+  function linksOf(o) { return (o.links || (o.link ? [o.link] : [])).map(WS.safeLink).filter(Boolean).slice(0, WS.MAX_LINKS); }
+  function imagesOf(o) { return (o.images || (o.image ? [o.image] : [])).filter(function (i) { return i && i.base64; }).slice(0, WS.MAX_PHOTOS); }
+  /* Teams chat/channel message (Microsoft Graph chatMessage). Photos go inline as hosted content (Teams allows pictures only). */
   WS.talentMessage = function (o) {
-    var e = WS.escHtml, parts = [];
+    var e = WS.escHtml, parts = [], links = linksOf(o), imgs = imagesOf(o);
     parts.push("<p><b>" + e(o.te || "✨") + " Talent moment: " + e(o.tn) + "</b></p>");
     parts.push("<p><b>" + e(o.title) + "</b></p>");
     if (o.msg) parts.push("<p>" + e(o.msg).replace(/\r?\n/g, "<br>") + "</p>");
-    var link = WS.safeLink(o.link);
-    if (link) parts.push("<p>▶ <a href=\"" + e(link) + "\">Watch or listen</a></p>");
+    links.forEach(function (l, i) { parts.push("<p>▶ <a href=\"" + e(l) + "\">" + (links.length > 1 ? "Watch or listen (" + (i + 1) + ")" : "Watch or listen") + "</a></p>"); });
     var msg = { body: { contentType: "html", content: "" } };
-    if (o.image && o.image.base64) {
-      parts.push('<p><img src="../hostedContents/1/$value" alt="' + e(o.title) + '"' + (o.image.w ? ' width="' + o.image.w + '" height="' + o.image.h + '"' : "") + "></p>");
-      msg.hostedContents = [{ "@microsoft.graph.temporaryId": "1", contentBytes: o.image.base64, contentType: o.image.type || "image/jpeg" }];
+    if (imgs.length) {
+      msg.hostedContents = [];
+      imgs.forEach(function (im, i) {
+        var id = String(i + 1);
+        parts.push('<p><img src="../hostedContents/' + id + '/$value" alt="' + e(o.title) + (imgs.length > 1 ? " (" + id + ")" : "") + '"' + (im.w ? ' width="' + im.w + '" height="' + im.h + '"' : "") + "></p>");
+        msg.hostedContents.push({ "@microsoft.graph.temporaryId": id, contentBytes: im.base64, contentType: im.type || "image/jpeg" });
+      });
     }
+    if (o.cheer) parts.push("<p>" + e(WS.CHEER) + "</p>");
     parts.push("<p><em>Shared from Winsprout</em></p>");
     msg.body.content = parts.join("");
     return msg;
   };
   WS.talentText = function (o) {
-    var L = [(o.te || "✨") + " Talent moment: " + o.tn, o.title];
+    var L = [(o.te || "✨") + " Talent moment: " + o.tn, o.title], links = linksOf(o);
     if (o.msg) L.push(o.msg);
-    var link = WS.safeLink(o.link); if (link) L.push("Watch or listen: " + link);
+    links.forEach(function (l, i) { L.push((links.length > 1 ? "Watch or listen (" + (i + 1) + "): " : "Watch or listen: ") + l); });
+    if (o.cheer) L.push(WS.CHEER);
     return L.join("\n");
   };
 

@@ -12,7 +12,7 @@
   var DEFAULT = { v: 1, settings: { workdays: [1, 2, 3, 4, 5], weeklyGoal: 5, reminder: "17:30", name: "", u: 0 }, wins: [], talents: [], shows: [] };
   var data = normalise(SY.load()) || JSON.parse(JSON.stringify(DEFAULT));
   var ui = { view: "today", weekOf: TODAY, logDay: TODAY, editing: null, cat: "delivered", imp: 2, period: "last12", from: "", to: "",
-    share: { tid: "", title: "", msg: "", link: "", image: null, copied: false, needIT: false, kind: "chat", chatId: "", teamId: "", channelId: "", chats: null, teams: null, channels: {}, ready: null, checked: false, loading: false, posting: false, err: "" } };
+    share: { tid: "", title: "", msg: "", links: [""], images: [], cheer: true, copied: false, needIT: false, kind: "chat", chatId: "", teamId: "", channelId: "", chats: null, teams: null, channels: {}, ready: null, checked: false, loading: false, posting: false, err: "" } };
 
   function normalise(d) {
     if (!d || typeof d !== "object" || !Array.isArray(d.wins)) return null;
@@ -543,21 +543,37 @@
     title.addEventListener("input", function () { sh.title = title.value; preview(); });
     var msg = h("textarea", { id: "shMsg", rows: 3, maxlength: 600, placeholder: "Say a few words (optional)" }); msg.value = sh.msg;
     msg.addEventListener("input", function () { sh.msg = msg.value; preview(); });
-    var link = h("input", { type: "url", id: "shLink", maxlength: 500, value: sh.link, placeholder: "https://…" });
-    link.addEventListener("input", function () { sh.link = link.value; preview(); });
-    var photo = h("input", { type: "file", id: "shPhoto", accept: "image/png,image/jpeg,image/webp,image/gif" });
-    photo.addEventListener("change", function () { var f = photo.files && photo.files[0]; if (f) loadPhoto(f); });
+    var photo = h("input", { type: "file", id: "shPhoto", multiple: true, accept: "image/png,image/jpeg,image/webp,image/gif", disabled: sh.images.length >= WS.MAX_PHOTOS ? true : null });
+    photo.addEventListener("change", function () { loadPhotos(Array.prototype.slice.call(photo.files || [])); });
 
     form.appendChild(h("label", { for: "shTalent", class: "lbl", text: "Talent" })); form.appendChild(tsel);
     form.appendChild(h("label", { for: "shTitle", class: "lbl", text: "Title" })); form.appendChild(title);
     form.appendChild(h("label", { for: "shMsg", class: "lbl", text: "Message" })); form.appendChild(msg);
     var media = h("fieldset", { class: "media" }, [h("legend", { class: "lbl", text: "Photo, video or audio (add at least one)" })]);
-    media.appendChild(h("label", { for: "shPhoto", class: "small", text: "Photo from your device" }));
-    media.appendChild(h("div", { class: "row wrap" }, [photo, sh.image ? h("span", { class: "small muted", text: "✓ " + sh.image.name }) : null,
-      sh.image ? h("button", { class: "btn ghost small", type: "button", onclick: function () { sh.image = null; render(); } }, ["Remove photo"]) : null]));
-    media.appendChild(h("label", { for: "shLink", class: "small", text: "And/or a link to your video or audio" })); media.appendChild(link);
+    media.appendChild(h("label", { for: "shPhoto", class: "small", text: "Photos from your device (up to " + WS.MAX_PHOTOS + ")" }));
+    media.appendChild(photo);
+    if (sh.images.length) {
+      var thumbs = h("ul", { class: "thumbs" });
+      sh.images.forEach(function (im, i) {
+        thumbs.appendChild(h("li", null, [h("img", { src: "data:" + im.type + ";base64," + im.base64, alt: im.name }),
+          h("button", { class: "icon", type: "button", "aria-label": "Remove photo " + im.name, onclick: function () { sh.images.splice(i, 1); render(); } }, ["✕"])]));
+      });
+      media.appendChild(thumbs);
+    }
+    media.appendChild(h("p", { class: "small", text: "Links to your videos or audio (up to " + WS.MAX_LINKS + ")" }));
+    sh.links.forEach(function (val, i) {
+      var li = h("input", { type: "url", id: i ? "shLink" + (i + 1) : "shLink", maxlength: 500, value: val, placeholder: "https://…", "aria-label": "Video or audio link " + (i + 1) });
+      li.addEventListener("input", function () { sh.links[i] = li.value; preview(); });
+      var rowKids = [li];
+      if (sh.links.length > 1) rowKids.push(h("button", { class: "icon", type: "button", "aria-label": "Remove link " + (i + 1), onclick: function () { sh.links.splice(i, 1); render(); } }, ["✕"]));
+      media.appendChild(h("div", { class: "row linkrow" }, rowKids));
+    });
+    if (sh.links.length < WS.MAX_LINKS) media.appendChild(h("button", { class: "btn ghost small addlink", type: "button", onclick: function () { sh.links.push(""); render(); var n = $("shLink" + sh.links.length); if (n) n.focus(); } }, ["+ Add another link"]));
     media.appendChild(h("p", { class: "small muted", text: "Put your clip on your own OneDrive, Stream or YouTube first, then paste its link. Check that colleagues are allowed to open it: some companies block YouTube or outside sharing." }));
     form.appendChild(media);
+    var cheer = h("input", { type: "checkbox", id: "shCheer" }); cheer.checked = sh.cheer !== false;
+    cheer.addEventListener("change", function () { sh.cheer = cheer.checked; preview(); });
+    form.appendChild(h("label", { class: "check", for: "shCheer" }, [cheer, " Invite colleagues to react and reply (adds \"" + WS.CHEER + "\")"]));
 
     /* where to post */
     form.appendChild(h("h3", { class: "lbl", text: "Where to share" }));
@@ -571,7 +587,7 @@
       h("button", { class: canPost ? "btn ghost" : "btn", type: "button", onclick: function () {
         var f = shareFields(), bad = checkShare(f); if (bad) { toast(bad); return; }
         sh.copied = true; render();
-        copyText(WS.talentText(f), f.image ? "Copied. Paste it in Teams, then add your photo there." : "Copied. Paste it into any Teams chat or channel.");
+        copyText(WS.talentText(f), f.images.length ? "Copied. Paste it in Teams, then add your " + (f.images.length > 1 ? "photos" : "photo") + " there." : "Copied. Paste it into any Teams chat or channel.");
       } }, ["Copy post"])
     ]));
     if (sh.copied) form.appendChild(h("div", { class: "row wrap" }, [h("span", { class: "small muted", text: "Posted it yourself?" }),
@@ -608,7 +624,8 @@
 
   function shareFields() {
     var sh = ui.share, t = myTalents().filter(function (x) { return x.id === sh.tid; })[0] || { n: "", e: "✨" };
-    return { tn: t.n, te: t.e, title: sh.title.trim(), msg: sh.msg.trim(), link: sh.link.trim(), image: sh.image };
+    var links = sh.links.map(function (l) { return String(l || "").trim(); }).filter(Boolean);
+    return { tn: t.n, te: t.e, title: sh.title.trim(), msg: sh.msg.trim(), links: links, images: sh.images.slice(), cheer: sh.cheer !== false };
   }
 
   function preview() {
@@ -617,26 +634,36 @@
     box.appendChild(h("p", null, [h("b", { text: f.te + " Talent moment: " + f.tn })]));
     box.appendChild(h("p", null, [h("b", { text: f.title || "Your title" })]));
     if (f.msg) f.msg.split(/\r?\n/).forEach(function (line) { box.appendChild(h("p", { text: line })); });
-    var link = WS.safeLink(f.link);
-    if (f.link && !link) box.appendChild(h("p", { class: "small warn", text: "The link must start with https://" }));
-    if (link) box.appendChild(h("p", null, ["▶ ", h("a", { href: link, target: "_blank", rel: "noopener" }, ["Watch or listen (opens in your browser) ", h("span", { class: "popout", "aria-hidden": "true", text: "↗" })])]));
-    if (f.image) box.appendChild(h("img", { src: "data:" + f.image.type + ";base64," + f.image.base64, alt: f.title || "Photo", class: "pimg" }));
+    f.links.forEach(function (l, i) {
+      var ok = WS.safeLink(l);
+      if (!ok) { box.appendChild(h("p", { class: "small warn", text: "Link " + (f.links.length > 1 ? i + 1 + " " : "") + "must start with https://" })); return; }
+      box.appendChild(h("p", null, ["▶ ", h("a", { href: ok, target: "_blank", rel: "noopener" }, ["Watch or listen" + (f.links.length > 1 ? " (" + (i + 1) + ")" : "") + " (opens in your browser) ", h("span", { class: "popout", "aria-hidden": "true", text: "↗" })])]));
+    });
+    f.images.forEach(function (im, i) { box.appendChild(h("img", { src: "data:" + im.type + ";base64," + im.base64, alt: (f.title || "Photo") + (f.images.length > 1 ? " (" + (i + 1) + ")" : ""), class: "pimg" })); });
+    if (f.cheer) box.appendChild(h("p", { text: WS.CHEER }));
     box.appendChild(h("p", { class: "small muted" }, [h("em", { text: "Shared from Winsprout" })]));
   }
 
+  function loadPhotos(files) {
+    var room = WS.MAX_PHOTOS - ui.share.images.length;
+    if (files.length > room) toast("You can add up to " + WS.MAX_PHOTOS + " photos. Only the first " + room + " were added.");
+    files.slice(0, Math.max(0, room)).forEach(loadPhoto);
+  }
   function loadPhoto(file) {
-    if (!/^image\//.test(file.type)) { toast("Choose a photo (JPG, PNG, WEBP or GIF)."); return; }
-    if (file.size > 15 * 1024 * 1024) { toast("That photo is too big. Choose one under 15 MB."); return; }
+    if (!/^image\//.test(file.type)) { toast("Choose photos (JPG, PNG, WEBP or GIF). Video and audio go in as links."); return; }
+    if (file.size > 15 * 1024 * 1024) { toast(file.name + " is too big. Choose photos under 15 MB."); return; }
     var url = URL.createObjectURL(file), img = new Image();
     img.onload = function () {
       var max = 1280, w = img.naturalWidth, hgt = img.naturalHeight, sc = Math.min(1, max / Math.max(w, hgt));
       var cv = document.createElement("canvas"); cv.width = Math.round(w * sc); cv.height = Math.round(hgt * sc);
       var cx = cv.getContext("2d"); cx.fillStyle = "#fff"; cx.fillRect(0, 0, cv.width, cv.height); cx.drawImage(img, 0, 0, cv.width, cv.height);
       URL.revokeObjectURL(url);
-      var q = 0.85, b64 = cv.toDataURL("image/jpeg", q).split(",")[1];
-      while (b64.length > 3500000 && q > 0.4) { q -= 0.15; b64 = cv.toDataURL("image/jpeg", q).split(",")[1]; }
+      // keep each photo small enough that 4 fit in one Teams message
+      var q = 0.82, b64 = cv.toDataURL("image/jpeg", q).split(",")[1];
+      while (b64.length > 800000 && q > 0.35) { q -= 0.12; b64 = cv.toDataURL("image/jpeg", q).split(",")[1]; }
       var dw = Math.min(cv.width, 480), dh = Math.round(cv.height * dw / cv.width);
-      ui.share.image = { base64: b64, type: "image/jpeg", w: dw, h: dh, name: file.name.slice(0, 60) };
+      if (ui.share.images.length >= WS.MAX_PHOTOS) return;
+      ui.share.images.push({ base64: b64, type: "image/jpeg", w: dw, h: dh, name: file.name.slice(0, 60) });
       render();
     };
     img.onerror = function () { URL.revokeObjectURL(url); toast("Couldn't read that photo."); };
@@ -743,18 +770,17 @@
 
   function checkShare(f) {
     if (!f.title) { setTimeout(function () { var t = $("shTitle"); if (t) t.focus(); }, 0); return "Give your talent moment a title first."; }
-    var link = WS.safeLink(f.link);
-    if (f.link && !link) { setTimeout(function () { var l = $("shLink"); if (l) l.focus(); }, 0); return "The link must start with https://"; }
-    if (!f.image && !link) { setTimeout(function () { var p = $("shPhoto"); if (p) p.focus(); }, 0); return "Add a photo, or a link to your video or audio."; }
+    for (var i = 0; i < f.links.length; i++) if (!WS.safeLink(f.links[i])) { setTimeout(function () { var l = $("shLink"); if (l) l.focus(); }, 0); return "Each link must start with https://"; }
+    if (!f.images.length && !f.links.length) { setTimeout(function () { var p = $("shPhoto"); if (p) p.focus(); }, 0); return "Add a photo, or a link to your video or audio."; }
     return "";
   }
 
   function recordShow(f, label, url, had) {
     var sh = ui.share;
     if (!had) { had = {}; WS.badges(data.wins, TODAY, settings().workdays, data.shows).forEach(function (b) { if (b.got) had[b.id] = 1; }); }
-    data.shows.push(WS.makeShow({ d: TODAY, tn: f.tn, te: f.te, title: f.title, msg: f.msg, link: f.link, to: label, url: url }));
+    data.shows.push(WS.makeShow({ d: TODAY, tn: f.tn, te: f.te, title: f.title, msg: f.msg, links: f.links, images: f.images, to: label, url: url }));
     save();
-    sh.title = ""; sh.msg = ""; sh.link = ""; sh.image = null; sh.copied = false; sh.err = "";
+    sh.title = ""; sh.msg = ""; sh.links = [""]; sh.images = []; sh.copied = false; sh.err = "";
     var fresh = WS.badges(data.wins, TODAY, settings().workdays, data.shows).filter(function (b) { return b.got && !had[b.id]; });
     render();
     fx.burst(null, 2);
