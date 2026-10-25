@@ -1,0 +1,852 @@
+/* Winsprout app UI */
+(function () {
+  "use strict";
+  var WS = window.WS, SY = window.WSSync;
+  var $ = function (id) { return document.getElementById(id); };
+  var TODAY = WS.key(new Date());
+  var TAB = (function () { try { var v = new URLSearchParams(location.search).get("view"); return ["today", "week", "report", "talents", "badges", "settings"].indexOf(v) >= 0 ? v : ""; } catch (e) { return ""; } })();
+  if (TAB) document.documentElement.classList.add("ws-tab");
+  var DEFAULT = { v: 1, settings: { workdays: [1, 2, 3, 4, 5], weeklyGoal: 5, reminder: "17:30", name: "", u: 0 }, wins: [], talents: [], shows: [] };
+  var data = normalise(SY.load()) || JSON.parse(JSON.stringify(DEFAULT));
+  var ui = { view: "today", weekOf: TODAY, logDay: TODAY, editing: null, cat: "delivered", imp: 2, period: "last12", from: "", to: "",
+    share: { tid: "", title: "", msg: "", link: "", image: null, copied: false, needIT: false, kind: "chat", chatId: "", teamId: "", channelId: "", chats: null, teams: null, channels: {}, ready: null, checked: false, loading: false, posting: false, err: "" } };
+
+  function normalise(d) {
+    if (!d || typeof d !== "object" || !Array.isArray(d.wins)) return null;
+    d.settings = Object.assign({}, DEFAULT.settings, d.settings || {});
+    if (!Array.isArray(d.talents)) d.talents = [];
+    if (!Array.isArray(d.shows)) d.shows = [];
+    d.v = 1;
+    return d;
+  }
+  function settings() { return data.settings; }
+  function save() { SY.queueSave(data); }
+
+  /* ---------- small DOM helpers ---------- */
+  function h(tag, attrs, kids) {
+    var e = document.createElement(tag);
+    if (attrs) Object.keys(attrs).forEach(function (k) {
+      var v = attrs[k];
+      if (v === null || v === undefined || v === false) return;
+      if (k === "text") e.textContent = v;
+      else if (k === "class") e.className = v;
+      else if (k.slice(0, 2) === "on") e.addEventListener(k.slice(2), v);
+      else e.setAttribute(k, v === true ? "" : v);
+    });
+    (kids || []).forEach(function (c) { if (c != null) e.appendChild(typeof c === "string" ? document.createTextNode(c) : c); });
+    return e;
+  }
+  function svg(tag, attrs, kids) {
+    var e = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    Object.keys(attrs || {}).forEach(function (k) { e.setAttribute(k, attrs[k]); });
+    (kids || []).forEach(function (c) { e.appendChild(typeof c === "string" ? document.createTextNode(c) : c); });
+    return e;
+  }
+  var toastTimer;
+  function toast(msg) {
+    var t = $("toast"); t.textContent = msg; t.classList.add("show");
+    clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.classList.remove("show"); }, 3200);
+  }
+  function plural(n, w) { return n + " " + w + (n === 1 ? "" : "s"); }
+
+  /* ---------- tabs ---------- */
+  var VIEWS = ["today", "week", "report", "talents", "badges", "settings"];
+  function show(view, focus) {
+    ui.view = view;
+    VIEWS.forEach(function (v) {
+      var on = v === view;
+      $("t-" + v).setAttribute("aria-selected", on ? "true" : "false");
+      $("t-" + v).tabIndex = on ? 0 : -1;
+      $("v-" + v).hidden = !on;
+    });
+    render();
+    if (focus) $("t-" + view).focus();
+    if (!TAB) SY.set("view", view);
+  }
+  VIEWS.forEach(function (v, i) {
+    var b = $("t-" + v);
+    b.addEventListener("click", function () { show(v); });
+    b.addEventListener("keydown", function (e) {
+      var j = e.key === "ArrowRight" ? i + 1 : e.key === "ArrowLeft" ? i - 1 : e.key === "Home" ? 0 : e.key === "End" ? VIEWS.length - 1 : null;
+      if (j === null) return;
+      e.preventDefault(); show(VIEWS[(j + VIEWS.length) % VIEWS.length], true);
+    });
+  });
+
+  function render() {
+    var map = { today: renderToday, week: renderWeek, report: renderReport, talents: renderTalents, badges: renderBadges, settings: renderSettings };
+    var root = $("v-" + ui.view);
+    root.textContent = "";
+    map[ui.view](root);
+  }
+
+  /* ---------- storage pill ---------- */
+  function renderPill() {
+    var st = SY.status(), p = $("storePill");
+    var label = {
+      local: "Saved on this device", connecting: "Connecting…", syncing: "Syncing…", saving: "Saving…",
+      cloud: "Saved to your OneDrive", offline: "Offline: will sync later"
+    }[st.state] || "Saved on this device";
+    p.textContent = (st.state === "cloud" ? "✓ " : "") + label;
+    p.className = "pill " + st.state;
+    p.setAttribute("aria-label", label + ". Open storage settings");
+  }
+  $("storePill").addEventListener("click", function () { goTo("settings"); });
+  /* Inside Teams each screen is its own Teams tab (?view=…); move between them with Teams' own navigation */
+  function goTo(view) {
+    var T = window.microsoftTeams;
+    if (TAB && T && T.pages && T.pages.currentApp && T.pages.currentApp.navigateTo) {
+      try { T.pages.currentApp.navigateTo({ pageId: view }).catch(function () { show(view); }); return; } catch (e) { /* older Teams */ }
+    }
+    show(view);
+  }
+  SY.onChange(function () { renderPill(); if (ui.view === "settings") render(); });
+
+  /* ---------- TODAY ---------- */
+  function goalRing(done, goal) {
+    var r = 26, c = 2 * Math.PI * r, f = Math.min(done / Math.max(goal, 1), 1);
+    return svg("svg", { width: 68, height: 68, viewBox: "0 0 68 68", class: "ring", role: "img", "aria-label": done + " of " + goal + " wins this week" }, [
+      svg("circle", { cx: 34, cy: 34, r: r, class: "ring-bg" }),
+      svg("circle", { cx: 34, cy: 34, r: r, class: "ring-fg", "stroke-dasharray": (c * f) + " " + c, transform: "rotate(-90 34 34)" }),
+      svg("text", { x: 34, y: 39, "text-anchor": "middle", class: "ring-txt" }, [done + "/" + goal])
+    ]);
+  }
+
+  function renderToday(root) {
+    var s = settings(), st = WS.streak(data.wins, TODAY, s.workdays), wk = WS.weekStats(data.wins, TODAY);
+    var todays = (WS.byDay(data.wins)[ui.logDay] || []);
+    var hour = new Date().getHours();
+    var hello = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+    var prompt = WS.PROMPTS[(new Date().getDate()) % WS.PROMPTS.length];
+
+    root.appendChild(h("div", { class: "hero" }, [
+      h("div", null, [
+        h("h1", { text: hello + (s.name ? ", " + s.name.split(" ")[0] : "") }),
+        h("p", { class: "muted", text: st ? "🔥 " + plural(st, "working day") + " in a row. Keep it growing." : "Log one win today to start your streak." })
+      ]),
+      h("div", { class: "goal" }, [goalRing(wk.total, s.weeklyGoal), h("span", { class: "small muted", text: "this week" })])
+    ]));
+
+    // log form
+    var input = h("textarea", { id: "winText", rows: 2, maxlength: 500, placeholder: prompt, "aria-label": "What did you get done?" });
+    var catRow = h("div", { class: "chips", role: "radiogroup", "aria-label": "Type of win" });
+    WS.CATEGORIES.forEach(function (c) {
+      catRow.appendChild(h("button", { type: "button", role: "radio", class: "chip", "aria-checked": ui.cat === c.id ? "true" : "false", onclick: function () { ui.cat = c.id; render(); setTimeout(function () { $("winText").focus(); }, 0); } }, [c.emoji + " " + c.label]));
+    });
+    var impRow = h("div", { class: "seg", role: "radiogroup", "aria-label": "How big was it?" });
+    [1, 2, 3].forEach(function (i) {
+      impRow.appendChild(h("button", { type: "button", role: "radio", "aria-checked": ui.imp === i ? "true" : "false", onclick: function () { ui.imp = i; render(); } }, [WS.IMPACT[i]]));
+    });
+    var dayInput = h("input", { type: "date", id: "logDay", value: ui.logDay, max: TODAY, "aria-label": "Day of this win" });
+    dayInput.addEventListener("change", function () { if (dayInput.value && dayInput.value <= TODAY) { ui.logDay = dayInput.value; render(); } });
+    var add = h("button", { class: "btn", type: "submit" }, ["Add win"]);
+    var form = h("form", { class: "card log", "aria-label": "Log a win" }, [
+      h("label", { for: "winText", class: "lbl", text: ui.logDay === TODAY ? "What did you get done today?" : "What did you get done on " + WS.nice(ui.logDay) + "?" }),
+      input, catRow,
+      h("div", { class: "row between wrap" }, [h("div", { class: "row" }, [h("span", { class: "small muted", text: "Size" }), impRow]), h("div", { class: "row wrap" }, [dayInput, add])])
+    ]);
+    form.addEventListener("submit", function (e) { e.preventDefault(); addWin(input.value); });
+    input.addEventListener("keydown", function (e) { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); addWin(input.value); } });
+    root.appendChild(form);
+
+    // list for that day
+    root.appendChild(h("h2", { text: ui.logDay === TODAY ? "Today's wins" : "Wins on " + WS.nice(ui.logDay) }));
+    if (!todays.length) root.appendChild(h("p", { class: "empty", text: "Nothing yet. Even small wins count: a question answered, a fix, a thank-you." }));
+    else root.appendChild(winList(todays));
+    setTimeout(function () { if (ui.view === "today" && !ui.editing) { var t = $("winText"); if (t && document.activeElement === document.body) t.focus(); } }, 0);
+  }
+
+  function addWin(text) {
+    text = String(text || "").trim();
+    if (!text) { toast("Write a few words about your win first."); $("winText").focus(); return; }
+    var had = {};
+    WS.badges(data.wins, TODAY, settings().workdays, data.shows).forEach(function (b) { if (b.got) had[b.id] = 1; });
+    data.wins.push(WS.makeWin(ui.logDay, text, ui.cat, ui.imp));
+    save();
+    var fresh = WS.badges(data.wins, TODAY, settings().workdays, data.shows).filter(function (b) { return b.got && !had[b.id]; });
+    var st = WS.streak(data.wins, TODAY, settings().workdays);
+    ui.imp = 2;
+    render();
+    if (fresh.length) toast(fresh[0].icon + " New badge: " + fresh[0].name + "!");
+    else toast(st > 1 ? "🌱 Win saved. " + st + "-day streak!" : "🌱 Win saved.");
+    var t = $("winText"); if (t) t.focus();
+  }
+
+  function winList(list) {
+    var ul = h("ul", { class: "wins" });
+    list.forEach(function (w) {
+      var c = WS.catById(w.c);
+      if (ui.editing === w.id) {
+        var ta = h("textarea", { rows: 2, maxlength: 500, "aria-label": "Edit win" }); ta.value = w.t;
+        var sel = h("select", { "aria-label": "Type of win" });
+        WS.CATEGORIES.forEach(function (x) { var o = h("option", { value: x.id, text: x.emoji + " " + x.label }); if (x.id === w.c) o.selected = true; sel.appendChild(o); });
+        var imp = h("select", { "aria-label": "Size" });
+        [1, 2, 3].forEach(function (i) { var o = h("option", { value: String(i), text: WS.IMPACT[i] }); if (i === w.imp) o.selected = true; imp.appendChild(o); });
+        ul.appendChild(h("li", { class: "win editing" }, [ta, h("div", { class: "row" }, [sel, imp,
+          h("button", { class: "btn small", type: "button", onclick: function () {
+            var t = ta.value.trim(); if (!t) { toast("A win needs a few words."); return; }
+            w.t = t.slice(0, 500); w.c = sel.value; w.imp = +imp.value; w.u = Date.now(); ui.editing = null; save(); render(); toast("Saved.");
+          } }, ["Save"]),
+          h("button", { class: "btn ghost small", type: "button", onclick: function () { ui.editing = null; render(); } }, ["Cancel"])
+        ])]));
+        setTimeout(function () { ta.focus(); }, 0);
+        return;
+      }
+      ul.appendChild(h("li", { class: "win" + (w.imp === 3 ? " big" : "") }, [
+        h("span", { class: "wico", "aria-hidden": "true", text: c.emoji }),
+        h("div", { class: "wbody" }, [h("p", { class: "wtext", text: w.t }), h("p", { class: "small muted", text: c.label + " · " + WS.IMPACT[w.imp] + (ui.view !== "today" ? " · " + WS.short(w.d) : "") })]),
+        h("div", { class: "wact" }, [
+          h("button", { class: "icon", type: "button", "aria-label": "Edit: " + w.t, onclick: function () { ui.editing = w.id; render(); } }, ["✎"]),
+          h("button", { class: "icon", type: "button", "aria-label": "Delete: " + w.t, onclick: function () {
+            ask("Delete this win?", "Delete", function () { w.del = true; w.u = Date.now(); save(); render(); toast("Deleted."); });
+          } }, ["🗑"])
+        ])
+      ]));
+    });
+    return ul;
+  }
+  /* in-app confirm box (browser pop-ups are unreliable inside Teams) */
+  function ask(msg, okLabel, onYes) {
+    var back = document.activeElement, box = $("ask");
+    function close() { box.hidden = true; document.removeEventListener("keydown", key, true); if (back && back.focus && document.body.contains(back)) back.focus(); }
+    function key(e) {
+      if (e.key === "Escape") { e.preventDefault(); close(); }
+      if (e.key === "Tab") { var f = [yes, no], i = f.indexOf(document.activeElement); e.preventDefault(); f[(i + 1) % 2].focus(); }
+    }
+    $("askMsg").textContent = msg;
+    var yes = $("askYes"), no = $("askNo");
+    yes.textContent = okLabel || "OK";
+    yes.onclick = function () { close(); onYes(); };
+    no.onclick = close;
+    box.onclick = function (e) { if (e.target === box) close(); };
+    box.hidden = false;
+    document.addEventListener("keydown", key, true);
+    no.focus();
+  }
+
+  /* ---------- WEEK ---------- */
+  function renderWeek(root) {
+    var s = WS.weekStats(data.wins, ui.weekOf), days = s.days, goal = settings().weeklyGoal;
+    var isThis = WS.weekStart(TODAY) === days[0];
+    root.appendChild(h("div", { class: "row between wrap" }, [
+      h("h1", { text: isThis ? "This week" : "Week of " + WS.short(days[0]) }),
+      h("div", { class: "row" }, [
+        h("button", { class: "btn ghost small", type: "button", "aria-label": "Previous week", onclick: function () { ui.weekOf = WS.addDays(days[0], -7); render(); } }, ["‹ Prev"]),
+        h("button", { class: "btn ghost small", type: "button", disabled: isThis ? true : null, "aria-label": "Next week", onclick: function () { ui.weekOf = WS.addDays(days[0], 7); render(); } }, ["Next ›"])
+      ])
+    ]));
+    root.appendChild(h("p", { class: "muted", text: WS.short(days[0]) + " – " + WS.nice(days[6]) }));
+
+    var tiles = h("div", { class: "tiles" }, [
+      tile(s.total, "wins", s.total >= goal ? "Goal reached 🎉" : (goal - s.total) + " to weekly goal"),
+      tile(s.big.length, "big wins", ""),
+      tile(Object.keys(s.cats).length, "kinds of work", ""),
+      tile(WS.streak(data.wins, TODAY, settings().workdays), "day streak", "")
+    ]);
+    root.appendChild(tiles);
+    root.appendChild(h("div", { class: "card" }, [h("h2", { text: "Wins per day" }), barChart(s.perDay.map(function (p) { return { label: WS.DAY[WS.dow(p.day)], value: p.count, sub: WS.short(p.day), today: p.day === TODAY }; }))]));
+    root.appendChild(h("div", { class: "card" }, [h("h2", { text: "What kind of work" }), catBars(s.cats)]));
+
+    var m = WS.byDay(data.wins), all = [];
+    days.forEach(function (k) { (m[k] || []).forEach(function (w) { all.push(w); }); });
+    root.appendChild(h("div", { class: "row between wrap" }, [h("h2", { text: "All wins this week" }),
+      h("button", { class: "btn small", type: "button", disabled: all.length ? null : true, onclick: function () { copyText(WS.weekText(data.wins, ui.weekOf), "Week summary copied. Paste it in a Teams chat with your manager.", false); } }, ["Copy week summary"])]));
+    root.appendChild(all.length ? winList(all) : h("p", { class: "empty", text: "No wins logged this week." }));
+  }
+
+  function tile(n, label, note) {
+    return h("div", { class: "tile" }, [h("b", { text: String(n) }), h("span", { text: label }), note ? h("small", { class: "muted", text: note }) : null]);
+  }
+
+  function barChart(items) {
+    var W = 560, H = 190, pad = 28, max = Math.max(1, Math.max.apply(null, items.map(function (i) { return i.value; })));
+    var bw = (W - pad * 2) / items.length;
+    var g = svg("svg", { viewBox: "0 0 " + W + " " + H, class: "chart", role: "img", "aria-label": items.map(function (i) { return i.label + " " + i.value; }).join(", ") });
+    var baseY = H - 34;
+    g.appendChild(svg("line", { x1: pad, x2: W - pad, y1: baseY, y2: baseY, class: "axis" }));
+    items.forEach(function (it, i) {
+      var bh = (baseY - 18) * (it.value / max), x = pad + i * bw + bw * 0.18, w = bw * 0.64;
+      g.appendChild(svg("rect", { x: x, y: baseY - bh, width: w, height: Math.max(bh, it.value ? 3 : 0), rx: 5, class: "bar" + (it.today ? " today" : "") }));
+      if (it.value) g.appendChild(svg("text", { x: x + w / 2, y: baseY - bh - 6, "text-anchor": "middle", class: "val" }, [String(it.value)]));
+      g.appendChild(svg("text", { x: x + w / 2, y: baseY + 15, "text-anchor": "middle", class: "lab" }, [it.label]));
+      if (it.sub) g.appendChild(svg("text", { x: x + w / 2, y: baseY + 28, "text-anchor": "middle", class: "sub" }, [it.sub]));
+    });
+    return g;
+  }
+
+  function catBars(cats) {
+    var total = Object.keys(cats).reduce(function (s, k) { return s + cats[k]; }, 0);
+    if (!total) return h("p", { class: "empty", text: "Log a few wins to see this." });
+    var wrap = h("div", { class: "cats" });
+    WS.CATEGORIES.forEach(function (c) {
+      var n = cats[c.id] || 0; if (!n) return;
+      var pct = Math.round(n / total * 100);
+      wrap.appendChild(h("div", { class: "cat" }, [
+        h("span", { class: "cname", text: c.emoji + " " + c.label }),
+        h("span", { class: "track", "aria-hidden": "true" }, [h("span", { class: "fill", style: "width:" + pct + "%" })]),
+        h("span", { class: "cnum", text: n + " (" + pct + "%)" })
+      ]));
+    });
+    return wrap;
+  }
+
+  /* ---------- REPORT ---------- */
+  function currentPeriod() {
+    var p = WS.periods(TODAY);
+    if (ui.period === "custom") return { from: ui.from || p.last12.from, to: ui.to || TODAY };
+    return p[ui.period] || p.last12;
+  }
+  function renderReport(root) {
+    var p = WS.periods(TODAY), per = currentPeriod();
+    var rep = WS.report(data.wins, per.from, per.to, data.shows);
+    root.appendChild(h("h1", { text: "My achievements report" }));
+    root.appendChild(h("p", { class: "muted", text: "Use this for appraisals, 1:1s or your CV. You decide who sees it." }));
+
+    var sel = h("select", { id: "period", "aria-label": "Report period" });
+    Object.keys(p).forEach(function (k) { var o = h("option", { value: k, text: p[k].label }); if (k === ui.period) o.selected = true; sel.appendChild(o); });
+    var oc = h("option", { value: "custom", text: "Custom dates" }); if (ui.period === "custom") oc.selected = true; sel.appendChild(oc);
+    sel.addEventListener("change", function () { ui.period = sel.value; render(); });
+    var row = h("div", { class: "row wrap" }, [h("label", { for: "period", class: "small", text: "Period" }), sel]);
+    if (ui.period === "custom") {
+      var f = h("input", { type: "date", value: per.from, max: TODAY, "aria-label": "From" }), t = h("input", { type: "date", value: per.to, max: TODAY, "aria-label": "To" });
+      f.addEventListener("change", function () { ui.from = f.value; render(); });
+      t.addEventListener("change", function () { ui.to = t.value; render(); });
+      row.appendChild(f); row.appendChild(h("span", { text: "to" })); row.appendChild(t);
+    }
+    root.appendChild(row);
+
+    root.appendChild(h("div", { class: "tiles" }, [
+      tile(rep.total, "wins", WS.short(rep.from) + " – " + WS.short(rep.to)),
+      tile(rep.big.length, "big wins", ""),
+      tile(rep.activeDays, "days with wins", ""),
+      tile(WS.bestStreak(rep.list, settings().workdays), "best streak", "")
+    ]));
+
+    var cloud = SY.status().state === "cloud";
+    root.appendChild(h("div", { class: "row wrap actions" }, [
+      h("button", { class: "btn", type: "button", disabled: rep.total ? null : true, onclick: function () { wordReport(rep, cloud); } }, [cloud ? "Save Word report to my OneDrive" : "Download Word report"]),
+      h("button", { class: "btn ghost", type: "button", disabled: rep.total ? null : true, onclick: function () { copyReport(rep); } }, ["Copy report"])
+    ]));
+    if (ui.savedReport && ui.savedReport.url) root.appendChild(h("p", { class: "row wrap small" }, ["✓ Saved " + ui.savedReport.name + " to OneDrive › Apps › Winsprout.",
+      h("button", { class: "btn ghost small", type: "button", onclick: function () { SY.openLink(ui.savedReport.url); } }, ["Open in Word for the web ", h("span", { class: "popout", "aria-hidden": "true", text: "↗" })])]));
+    if (!rep.total) { root.appendChild(h("p", { class: "empty", text: "No wins in this period yet. Your report fills up as you log wins." })); return; }
+
+    var months = rep.monthKeys.map(function (mk) { return { label: WS.MON[+mk.slice(5, 7) - 1], value: (rep.months[mk] || []).length, sub: mk.slice(2, 4) === TODAY.slice(2, 4) ? "" : "'" + mk.slice(2, 4) }; });
+    root.appendChild(h("div", { class: "card" }, [h("h2", { text: "Wins by month" }), barChart(months.slice(-13))]));
+    root.appendChild(h("div", { class: "card" }, [h("h2", { text: "What kind of work" }), catBars(rep.cats)]));
+    if (rep.big.length) {
+      root.appendChild(h("h2", { text: "Highlights (big wins)" }));
+      root.appendChild(winList(rep.big));
+    }
+    if (rep.shows.length) {
+      root.appendChild(h("h2", { text: "Talents shared with colleagues" }));
+      root.appendChild(showList(rep.shows, false));
+    }
+    root.appendChild(h("h2", { text: "Everything, month by month" }));
+    rep.monthKeys.slice().reverse().forEach(function (mk) {
+      var list = rep.months[mk] || []; if (!list.length) return;
+      root.appendChild(h("details", { class: "month" }, [h("summary", { text: WS.MON[+mk.slice(5, 7) - 1] + " " + mk.slice(0, 4) + " · " + plural(list.length, "win") }), winList(list)]));
+    });
+  }
+
+  function reportName(rep) { return "Winsprout achievements " + rep.from + " to " + rep.to + ".docx"; }
+  function wordReport(rep, cloud) {
+    var bytes = WS.reportDocx(rep, settings().name);
+    if (cloud) {
+      toast("Saving to your OneDrive…");
+      SY.saveReport(bytes, reportName(rep)).then(function (url) {
+        ui.savedReport = { name: reportName(rep), url: url || "" };
+        render();
+        toast("Saved to OneDrive › Apps › Winsprout.");
+      }, function () { toast("Couldn't save to OneDrive. Downloading instead."); download(bytes, reportName(rep), "application/vnd.openxmlformats-officedocument.wordprocessingml.document"); });
+      return;
+    }
+    download(bytes, reportName(rep), "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+  }
+  function download(bytes, name, type) {
+    try {
+      var url = URL.createObjectURL(new Blob([bytes], { type: type }));
+      var a = h("a", { href: url, download: name }); document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+      toast("Downloaded " + name);
+    } catch (e) { toast("Your browser blocked the download. Use Copy instead."); }
+  }
+  function reportText(rep) {
+    var L = [(settings().name ? settings().name + " — " : "") + "My achievements, " + WS.nice(rep.from) + " to " + WS.nice(rep.to), "",
+      plural(rep.total, "win") + " on " + plural(rep.activeDays, "day") + ", " + plural(rep.big.length, "big win") + "."];
+    WS.CATEGORIES.forEach(function (c) { if (rep.cats[c.id]) L.push("• " + c.label + ": " + rep.cats[c.id]); });
+    if (rep.big.length) { L.push("", "Highlights"); rep.big.forEach(function (w) { L.push("• " + WS.short(w.d) + " — " + w.t); }); }
+    rep.monthKeys.forEach(function (mk) {
+      var list = rep.months[mk] || []; if (!list.length) return;
+      L.push("", WS.MON[+mk.slice(5, 7) - 1] + " " + mk.slice(0, 4));
+      list.forEach(function (w) { L.push("• " + (w.imp === 3 ? "★ " : "") + w.t); });
+    });
+    if (rep.shows && rep.shows.length) {
+      L.push("", "Talents shared with colleagues");
+      rep.shows.forEach(function (x) { L.push("• " + WS.short(x.d) + " — " + x.tn + ": " + x.title); });
+    }
+    return L.join("\n");
+  }
+  function copyReport(rep) { copyText(reportText(rep), "Report copied. Paste it into Word, Outlook or your appraisal form.", true); }
+  function copyText(text, okMsg) {
+    var done = false;
+    function onCopy(e) { try { e.clipboardData.setData("text/plain", text); e.preventDefault(); done = true; } catch (x) { done = false; } }
+    document.addEventListener("copy", onCopy);
+    try { document.execCommand("copy"); } catch (e) { /* not allowed */ }
+    document.removeEventListener("copy", onCopy);
+    if (done) { toast(okMsg); return; }
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { toast(okMsg); }, function () { showCopyBox(text); });
+    else showCopyBox(text);
+  }
+  function showCopyBox(text) {
+    var ta = h("textarea", { class: "copybox", rows: 8, readonly: true, "aria-label": "Text to copy" }); ta.value = text;
+    $("v-" + ui.view).appendChild(ta); ta.focus(); ta.select();
+    toast("Copying was blocked. Select the text below and press Ctrl+C.");
+  }
+
+  /* ---------- TALENTS ---------- */
+  function myTalents() { return WS.live(data.talents); }
+
+  function renderTalents(root) {
+    var sh = ui.share, mine = myTalents();
+    root.appendChild(h("h1", { text: "Talents" }));
+    root.appendChild(h("p", { class: "muted", text: "Storytelling, singing, speaking, art… Share them with your colleagues whenever you like. No need to wait for an HR event." }));
+
+    /* my talents */
+    var card = h("div", { class: "card" }, [h("h2", { text: "My talents" })]);
+    var chips = h("div", { class: "chips", role: "group", "aria-label": "Pick your talents" });
+    WS.TALENTS.forEach(function (t) {
+      var on = WS.hasTalent(data.talents, t.n);
+      chips.appendChild(h("button", { type: "button", class: "chip", "aria-pressed": on ? "true" : "false", onclick: function () { toggleTalent(t.n); } }, [t.e + " " + t.n]));
+    });
+    card.appendChild(chips);
+    var own = h("input", { type: "text", id: "ownTalent", maxlength: 40, placeholder: "e.g. Magic tricks" });
+    var addOwn = function () {
+      var v = own.value.trim();
+      if (!v) { toast("Type a talent first."); own.focus(); return; }
+      if (WS.hasTalent(data.talents, v)) { toast("You already have that one."); return; }
+      data.talents.push(WS.makeTalent(v)); save(); render(); toast("Added " + v + ".");
+      var o = $("ownTalent"); if (o) o.focus();
+    };
+    own.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); addOwn(); } });
+    card.appendChild(h("div", { class: "row wrap" }, [h("label", { for: "ownTalent", class: "small", text: "Add your own" }), own,
+      h("button", { class: "btn ghost small", type: "button", onclick: addOwn }, ["Add"])]));
+    if (mine.length) {
+      var ul = h("ul", { class: "talents" });
+      mine.forEach(function (t) {
+        var note = h("input", { type: "text", maxlength: 120, value: t.note || "", placeholder: "One line about it (optional)", "aria-label": "About your " + t.n });
+        note.addEventListener("change", function () { t.note = note.value.trim(); t.u = Date.now(); save(); toast("Saved."); });
+        ul.appendChild(h("li", { class: "talent" }, [
+          h("span", { class: "tname" }, [h("span", { "aria-hidden": "true", text: t.e + " " }), t.n]), note,
+          h("button", { class: "icon", type: "button", "aria-label": "Remove " + t.n, onclick: function () { t.del = true; t.u = Date.now(); save(); render(); toast("Removed " + t.n + "."); } }, ["🗑"])
+        ]));
+      });
+      card.appendChild(ul);
+      card.appendChild(h("button", { class: "btn ghost small", type: "button", onclick: function () {
+        var L = [(settings().name ? settings().name + "'s" : "My") + " talents"];
+        mine.forEach(function (t) { L.push(t.e + " " + t.n + (t.note ? " — " + t.note : "")); });
+        copyText(L.join("\n"), "Talent card copied. Paste it in your Teams chat or profile.");
+      } }, ["Copy my talent card"]));
+    } else card.appendChild(h("p", { class: "empty", text: "Pick one or more talents above. Only you see this list until you share something." }));
+    root.appendChild(card);
+
+    /* share a talent moment */
+    var form = h("form", { class: "card", "aria-label": "Share a talent moment" }, [h("h2", { text: "Share a talent moment" })]);
+    if (!mine.length) {
+      form.appendChild(h("p", { class: "muted", text: "Add a talent first, then share a story, a song, a drawing or a short talk with your colleagues." }));
+      root.appendChild(form); root.appendChild(historyCard()); return;
+    }
+    if (!sh.tid || !mine.some(function (t) { return t.id === sh.tid; })) sh.tid = mine[0].id;
+    var tsel = h("select", { id: "shTalent" });
+    mine.forEach(function (t) { var o = h("option", { value: t.id, text: t.e + " " + t.n }); if (t.id === sh.tid) o.selected = true; tsel.appendChild(o); });
+    tsel.addEventListener("change", function () { sh.tid = tsel.value; preview(); });
+    var title = h("input", { type: "text", id: "shTitle", maxlength: 100, value: sh.title, placeholder: "e.g. A 2-minute story about my first job", required: true });
+    title.addEventListener("input", function () { sh.title = title.value; preview(); });
+    var msg = h("textarea", { id: "shMsg", rows: 3, maxlength: 600, placeholder: "Say a few words (optional)" }); msg.value = sh.msg;
+    msg.addEventListener("input", function () { sh.msg = msg.value; preview(); });
+    var link = h("input", { type: "url", id: "shLink", maxlength: 500, value: sh.link, placeholder: "https://…" });
+    link.addEventListener("input", function () { sh.link = link.value; preview(); });
+    var photo = h("input", { type: "file", id: "shPhoto", accept: "image/png,image/jpeg,image/webp,image/gif" });
+    photo.addEventListener("change", function () { var f = photo.files && photo.files[0]; if (f) loadPhoto(f); });
+
+    form.appendChild(h("label", { for: "shTalent", class: "lbl", text: "Talent" })); form.appendChild(tsel);
+    form.appendChild(h("label", { for: "shTitle", class: "lbl", text: "Title" })); form.appendChild(title);
+    form.appendChild(h("label", { for: "shMsg", class: "lbl", text: "Message" })); form.appendChild(msg);
+    var media = h("fieldset", { class: "media" }, [h("legend", { class: "lbl", text: "Photo, video or audio (add at least one)" })]);
+    media.appendChild(h("label", { for: "shPhoto", class: "small", text: "Photo from your device" }));
+    media.appendChild(h("div", { class: "row wrap" }, [photo, sh.image ? h("span", { class: "small muted", text: "✓ " + sh.image.name }) : null,
+      sh.image ? h("button", { class: "btn ghost small", type: "button", onclick: function () { sh.image = null; render(); } }, ["Remove photo"]) : null]));
+    media.appendChild(h("label", { for: "shLink", class: "small", text: "And/or a link to your video or audio" })); media.appendChild(link);
+    media.appendChild(h("p", { class: "small muted", text: "Put your clip on your own OneDrive, Stream or YouTube first, then paste its link. Check that colleagues are allowed to open it: some companies block YouTube or outside sharing." }));
+    form.appendChild(media);
+
+    /* where to post */
+    form.appendChild(h("h3", { class: "lbl", text: "Where to share" }));
+    form.appendChild(destination());
+
+    form.appendChild(h("p", { class: "lbl", id: "pvLabel", text: "Preview" }));
+    form.appendChild(h("div", { class: "preview", id: "shPreview", role: "region", "aria-labelledby": "pvLabel" }));
+    var canPost = SY.canShare() && sh.ready === true;
+    form.appendChild(h("div", { class: "row wrap actions" }, [
+      canPost ? h("button", { class: "btn", type: "submit", disabled: sh.posting ? true : null }, [sh.posting ? "Posting…" : "Post to Teams"]) : null,
+      h("button", { class: canPost ? "btn ghost" : "btn", type: "button", onclick: function () {
+        var f = shareFields(), bad = checkShare(f); if (bad) { toast(bad); return; }
+        sh.copied = true; render();
+        copyText(WS.talentText(f), f.image ? "Copied. Paste it in Teams, then add your photo there." : "Copied. Paste it into any Teams chat or channel.");
+      } }, ["Copy post"])
+    ]));
+    if (sh.copied) form.appendChild(h("div", { class: "row wrap" }, [h("span", { class: "small muted", text: "Posted it yourself?" }),
+      h("button", { class: "btn ghost small", type: "button", onclick: function () {
+        var f = shareFields(), bad = checkShare(f); if (bad) { toast(bad); return; }
+        recordShow(f, "Posted by me", "");
+      } }, ["Add it to my talent moments"])]));
+    if (sh.err) form.appendChild(h("p", { class: "small warn", role: "alert", text: sh.err }));
+    if (sh.needIT) form.appendChild(itPanel(true));
+    form.addEventListener("submit", function (e) { e.preventDefault(); postShare(); });
+    root.appendChild(form);
+    preview();
+    root.appendChild(historyCard());
+
+    if (SY.canShare() && !sh.checked) {
+      sh.checked = true;
+      SY.shareReady().then(function (ok) { if (ok) { sh.ready = true; loadDest(); } });
+    }
+  }
+
+  function toggleTalent(name) {
+    var t = WS.live(data.talents).filter(function (x) { return x.n.toLowerCase() === name.toLowerCase(); })[0];
+    if (t) { t.del = true; t.u = Date.now(); toast("Removed " + name + "."); }
+    else { data.talents.push(WS.makeTalent(name)); toast("Added " + name + "."); }
+    save(); render();
+  }
+
+  function shareFields() {
+    var sh = ui.share, t = myTalents().filter(function (x) { return x.id === sh.tid; })[0] || { n: "", e: "✨" };
+    return { tn: t.n, te: t.e, title: sh.title.trim(), msg: sh.msg.trim(), link: sh.link.trim(), image: sh.image };
+  }
+
+  function preview() {
+    var box = $("shPreview"); if (!box) return;
+    var f = shareFields(); box.textContent = "";
+    box.appendChild(h("p", null, [h("b", { text: f.te + " Talent moment: " + f.tn })]));
+    box.appendChild(h("p", null, [h("b", { text: f.title || "Your title" })]));
+    if (f.msg) f.msg.split(/\r?\n/).forEach(function (line) { box.appendChild(h("p", { text: line })); });
+    var link = WS.safeLink(f.link);
+    if (f.link && !link) box.appendChild(h("p", { class: "small warn", text: "The link must start with https://" }));
+    if (link) box.appendChild(h("p", null, ["▶ ", h("a", { href: link, target: "_blank", rel: "noopener" }, ["Watch or listen (opens in your browser) ", h("span", { class: "popout", "aria-hidden": "true", text: "↗" })])]));
+    if (f.image) box.appendChild(h("img", { src: "data:" + f.image.type + ";base64," + f.image.base64, alt: f.title || "Photo", class: "pimg" }));
+    box.appendChild(h("p", { class: "small muted" }, [h("em", { text: "Shared from Winsprout" })]));
+  }
+
+  function loadPhoto(file) {
+    if (!/^image\//.test(file.type)) { toast("Choose a photo (JPG, PNG, WEBP or GIF)."); return; }
+    if (file.size > 15 * 1024 * 1024) { toast("That photo is too big. Choose one under 15 MB."); return; }
+    var url = URL.createObjectURL(file), img = new Image();
+    img.onload = function () {
+      var max = 1280, w = img.naturalWidth, hgt = img.naturalHeight, sc = Math.min(1, max / Math.max(w, hgt));
+      var cv = document.createElement("canvas"); cv.width = Math.round(w * sc); cv.height = Math.round(hgt * sc);
+      var cx = cv.getContext("2d"); cx.fillStyle = "#fff"; cx.fillRect(0, 0, cv.width, cv.height); cx.drawImage(img, 0, 0, cv.width, cv.height);
+      URL.revokeObjectURL(url);
+      var q = 0.85, b64 = cv.toDataURL("image/jpeg", q).split(",")[1];
+      while (b64.length > 3500000 && q > 0.4) { q -= 0.15; b64 = cv.toDataURL("image/jpeg", q).split(",")[1]; }
+      var dw = Math.min(cv.width, 480), dh = Math.round(cv.height * dw / cv.width);
+      ui.share.image = { base64: b64, type: "image/jpeg", w: dw, h: dh, name: file.name.slice(0, 60) };
+      render();
+    };
+    img.onerror = function () { URL.revokeObjectURL(url); toast("Couldn't read that photo."); };
+    img.src = url;
+  }
+
+  function destination() {
+    var sh = ui.share, box = h("div", { class: "dest" });
+    if (!SY.canShare()) {
+      box.appendChild(h("p", { class: "small muted", text: "Posting straight to a chat or channel works when Winsprout is opened inside Microsoft Teams with a work or school account. You can copy your post and paste it anywhere." }));
+      return box;
+    }
+    if (sh.ready !== true) {
+      box.appendChild(h("p", { class: "small muted", text: "The first time, Microsoft asks you to allow Winsprout to see your chat and channel names and post messages that you choose to send. Winsprout never reads your messages. Some companies need IT to approve this." }));
+      if (!sh.needIT) box.appendChild(itPanel(false));
+      box.appendChild(h("button", { class: "btn ghost", type: "button", onclick: function () {
+        sh.err = "";
+        SY.connectShare().then(function () { sh.ready = true; sh.needIT = false; loadDest(); }, function (e) {
+          var m = String(e && (e.errorCode || e.message) || "");
+          if (/user_cancelled|popup_window_error|cancel/i.test(m) && !/AADSTS/.test(m)) { sh.err = "Permission wasn't given. Press the button again when you're ready."; render(); return; }
+          sh.needIT = true;
+          sh.err = "Microsoft didn't allow Winsprout to post for you. Your company probably needs IT to approve it first (see below). You can still copy your post.";
+          render();
+        });
+      } }, ["Choose a chat or channel"]));
+      return box;
+    }
+    var seg = h("div", { class: "seg", role: "radiogroup", "aria-label": "Share to" });
+    [["chat", "A chat"], ["channel", "A team channel"]].forEach(function (k) {
+      seg.appendChild(h("button", { type: "button", role: "radio", "aria-checked": sh.kind === k[0] ? "true" : "false", onclick: function () { sh.kind = k[0]; render(); } }, [k[1]]));
+    });
+    box.appendChild(seg);
+    if (sh.loading) { box.appendChild(h("p", { class: "small muted", text: "Loading your chats and teams…" })); return box; }
+    if (sh.kind === "chat") {
+      var cs = h("select", { id: "shChat", "aria-label": "Chat" });
+      cs.appendChild(h("option", { value: "", text: (sh.chats && sh.chats.length) ? "Choose a chat…" : "No recent chats found" }));
+      (sh.chats || []).forEach(function (c) { var o = h("option", { value: c.id, text: c.label }); if (c.id === sh.chatId) o.selected = true; cs.appendChild(o); });
+      cs.addEventListener("change", function () { sh.chatId = cs.value; });
+      box.appendChild(cs);
+    } else {
+      var ts = h("select", { id: "shTeam", "aria-label": "Team" });
+      ts.appendChild(h("option", { value: "", text: (sh.teams && sh.teams.length) ? "Choose a team…" : "You're not in any teams" }));
+      (sh.teams || []).forEach(function (t) { var o = h("option", { value: t.id, text: t.label }); if (t.id === sh.teamId) o.selected = true; ts.appendChild(o); });
+      ts.addEventListener("change", function () { sh.teamId = ts.value; sh.channelId = ""; if (sh.teamId && !sh.channels[sh.teamId]) loadChannels(sh.teamId); else render(); });
+      box.appendChild(ts);
+      if (sh.teamId) {
+        var list = sh.channels[sh.teamId];
+        var chs = h("select", { id: "shChannel", "aria-label": "Channel", disabled: list ? null : true });
+        chs.appendChild(h("option", { value: "", text: list ? "Choose a channel…" : "Loading channels…" }));
+        (list || []).forEach(function (c) { var o = h("option", { value: c.id, text: c.label }); if (c.id === sh.channelId) o.selected = true; chs.appendChild(o); });
+        chs.addEventListener("change", function () { sh.channelId = chs.value; });
+        box.appendChild(chs);
+      }
+    }
+    return box;
+  }
+
+  function loadDest() {
+    var sh = ui.share; sh.loading = true; if (ui.view === "talents") render();
+    Promise.all([SY.listChats().catch(function () { return []; }), SY.listTeams().catch(function () { return []; })]).then(function (r) {
+      sh.chats = r[0]; sh.teams = r[1]; sh.loading = false; if (ui.view === "talents") render();
+    });
+  }
+  function loadChannels(teamId) {
+    render();
+    SY.listChannels(teamId).then(function (list) { ui.share.channels[teamId] = list; }, function () { ui.share.channels[teamId] = []; toast("Couldn't load channels for that team."); })
+      .then(function () { if (ui.view === "talents") render(); });
+  }
+
+  function destLabel() {
+    var sh = ui.share, find = function (arr, id) { return (arr || []).filter(function (x) { return x.id === id; })[0]; };
+    if (sh.kind === "chat") { var c = find(sh.chats, sh.chatId); return c ? c.label : ""; }
+    var t = find(sh.teams, sh.teamId), ch = find(sh.channels[sh.teamId], sh.channelId);
+    return t && ch ? t.label + " › " + ch.label : "";
+  }
+
+  function postShare() {
+    var sh = ui.share, f = shareFields();
+    if (sh.posting) return;
+    var bad = checkShare(f); if (bad) { toast(bad); return; }
+    var dest = sh.kind === "chat" ? { kind: "chat", chatId: sh.chatId } : { kind: "channel", teamId: sh.teamId, channelId: sh.channelId };
+    var label = destLabel();
+    if (!label) { toast(sh.kind === "chat" ? "Choose a chat to post in." : "Choose a team and channel to post in."); return; }
+    ask("Post this talent moment to " + label + "? Everyone there will see it.", "Post", function () { doPost(dest, label, f); });
+  }
+  function doPost(dest, label, f) {
+    var sh = ui.share;
+    sh.posting = true; sh.err = ""; render();
+    var had = {};
+    WS.badges(data.wins, TODAY, settings().workdays, data.shows).forEach(function (b) { if (b.got) had[b.id] = 1; });
+    SY.post(dest, WS.talentMessage(f)).then(function (res) {
+      sh.posting = false;
+      recordShow(f, label, res && res.webUrl, had);
+    }, function (e) {
+      sh.posting = false;
+      var st = e && e.status;
+      if (st === 403) sh.needIT = true;
+      sh.err = st === 403 ? "Teams didn't allow this post. Either your company needs IT to approve Winsprout (see below), or you can't post in that chat or channel. You can still use Copy post."
+        : st === 413 ? "The photo is too large for Teams. Remove it or choose a smaller one."
+        : "Couldn't post right now. Check your connection and try again, or use Copy post.";
+      render();
+    });
+  }
+
+  function checkShare(f) {
+    if (!f.title) { setTimeout(function () { var t = $("shTitle"); if (t) t.focus(); }, 0); return "Give your talent moment a title first."; }
+    var link = WS.safeLink(f.link);
+    if (f.link && !link) { setTimeout(function () { var l = $("shLink"); if (l) l.focus(); }, 0); return "The link must start with https://"; }
+    if (!f.image && !link) { setTimeout(function () { var p = $("shPhoto"); if (p) p.focus(); }, 0); return "Add a photo, or a link to your video or audio."; }
+    return "";
+  }
+
+  function recordShow(f, label, url, had) {
+    var sh = ui.share;
+    if (!had) { had = {}; WS.badges(data.wins, TODAY, settings().workdays, data.shows).forEach(function (b) { if (b.got) had[b.id] = 1; }); }
+    data.shows.push(WS.makeShow({ d: TODAY, tn: f.tn, te: f.te, title: f.title, msg: f.msg, link: f.link, to: label, url: url }));
+    save();
+    sh.title = ""; sh.msg = ""; sh.link = ""; sh.image = null; sh.copied = false; sh.err = "";
+    var fresh = WS.badges(data.wins, TODAY, settings().workdays, data.shows).filter(function (b) { return b.got && !had[b.id]; });
+    render();
+    toast(fresh.length ? fresh[0].icon + " Saved! New badge: " + fresh[0].name : (url ? "🎉 Posted to " + label + "." : "Added to your talent moments."));
+  }
+
+  /* Help for companies where IT must approve Winsprout */
+  function itPanel(open) {
+    var link = SY.adminConsentUrl();
+    var msg = ["Hi IT team,", "",
+      "Please approve the Microsoft Teams app \"Winsprout\" (publisher: RuBuild Services) so I can share talent posts in Teams chats and channels.", "",
+      "It asks for these Microsoft Graph delegated permissions (it acts only as the signed-in user, never in the background):",
+      "• Chat.ReadBasic, Team.ReadBasic.All, Channel.ReadBasic.All: show chat, team and channel names so I can pick where to post",
+      "• ChatMessage.Send, ChannelMessage.Send: post the message I write, after I confirm",
+      "• Files.ReadWrite.AppFolder, User.Read: back up my own data to my OneDrive app folder",
+      "Winsprout doesn't read messages, and RuBuild Services has no server that receives data.", "",
+      "Who can approve: a Global Administrator, Privileged Role Administrator, Cloud Application Administrator or Application Administrator.",
+      link ? "One-click approval link for our company: " + link : "Approve in the Microsoft Entra admin center: Enterprise apps > All applications > Winsprout > Permissions > Grant admin consent.",
+      "If Winsprout is blocked in Teams, a Teams admin can allow it in the Teams admin center: Teams apps > Manage apps > Winsprout > Allow.",
+      "Details for IT: https://rubuild.com/winsprout/it-admins.html", "", "Thank you!"].join("\n");
+    return h("details", { class: "it", open: open ? true : null }, [
+      h("summary", { text: "Does your company need IT to approve apps?" }),
+      h("p", { class: "small", text: "If Microsoft shows \"Need admin approval\", someone in your IT team must approve Winsprout once for the whole company. Only an admin with one of these roles can do it: Global Administrator, Privileged Role Administrator, Cloud Application Administrator or Application Administrator. Your IT helpdesk will know who that is." }),
+      h("p", { class: "small", text: "If Microsoft offers a \"Request approval\" button, use it: your request goes straight to those admins. Otherwise, send IT this ready-made request:" }),
+      h("button", { class: "btn ghost small", type: "button", onclick: function () { copyText(msg, "Request copied. Paste it into an email or chat to your IT helpdesk."); } }, ["Copy request for IT"]),
+      h("p", { class: "small muted", text: "Until it's approved, use Copy post and paste it into Teams yourself. Then press \"Add it to my talent moments\" so it still counts for your badges." })
+    ]);
+  }
+
+  function historyCard() {
+    var card = h("div", { class: "card" }, [h("h2", { text: "My talent moments" })]);
+    var list = WS.live(data.shows).slice().reverse();
+    if (!list.length) card.appendChild(h("p", { class: "empty", text: "Nothing shared yet. Your first post earns the 🎤 On stage badge." }));
+    else card.appendChild(showList(list, true));
+    return card;
+  }
+  function showList(list, actions) {
+    var ul = h("ul", { class: "wins" });
+    list.forEach(function (x) {
+      ul.appendChild(h("li", { class: "win" }, [
+        h("span", { class: "wico", "aria-hidden": "true", text: x.te }),
+        h("div", { class: "wbody" }, [h("p", { class: "wtext", text: x.title }), h("p", { class: "small muted", text: x.tn + " · " + WS.short(x.d) + (x.to ? " · " + x.to : "") })]),
+        actions ? h("div", { class: "wact" }, [
+          x.url ? h("button", { class: "btn ghost small", type: "button", onclick: function () { SY.openLink(x.url); } }, ["Open in Teams"]) : null,
+          h("button", { class: "icon", type: "button", "aria-label": "Remove from my list: " + x.title, onclick: function () {
+            ask("Remove this from your list? The post stays in Teams; delete it there if you want it gone.", "Remove", function () { x.del = true; x.u = Date.now(); save(); render(); toast("Removed from your list."); });
+          } }, ["🗑"])
+        ]) : null
+      ]));
+    });
+    return ul;
+  }
+
+  /* ---------- BADGES ---------- */
+  function renderBadges(root) {
+    var list = WS.badges(data.wins, TODAY, settings().workdays, data.shows), got = list.filter(function (b) { return b.got; }).length;
+    root.appendChild(h("h1", { text: "Badges" }));
+    root.appendChild(h("p", { class: "muted", text: got + " of " + list.length + " earned · " + plural(WS.live(data.wins).length, "win") + " so far · best streak " + WS.bestStreak(data.wins, settings().workdays) }));
+    var grid = h("ul", { class: "badges" });
+    list.forEach(function (b) {
+      grid.appendChild(h("li", { class: "badge" + (b.got ? " got" : "") }, [
+        h("span", { class: "bicon", "aria-hidden": "true", text: b.got ? b.icon : "🔒" }),
+        h("b", { text: b.name }), h("small", { text: b.how }),
+        h("span", { class: "sr", text: b.got ? "Earned" : "Not earned yet" })
+      ]));
+    });
+    root.appendChild(grid);
+  }
+
+  /* ---------- SETTINGS ---------- */
+  function renderSettings(root) {
+    var s = settings(), st = SY.status();
+    root.appendChild(h("h1", { text: "Settings" }));
+
+    // storage
+    var store = h("div", { class: "card" }, [h("h2", { text: "Where your wins are saved" })]);
+    if (st.state === "cloud" || st.state === "saving" || st.state === "syncing") {
+      store.appendChild(h("p", { text: "✓ Backed up to your own OneDrive (Apps › Winsprout)" + (st.account && st.account.username ? " as " + st.account.username : "") + ". Your wins follow you to any device. RuBuild can't see them." }));
+    } else {
+      store.appendChild(h("p", { text: "Right now your wins are saved only in this browser on this device. Connect your OneDrive to keep them safe and use them on other devices." }));
+      if (st.pca) store.appendChild(h("button", { class: "btn", type: "button", onclick: function () {
+        SY.connect().then(function (merged) { if (merged) { data = normalise(merged) || data; toast("Connected. Your wins are now backed up to OneDrive."); render(); renderPill(); } }, function () { toast("Couldn't connect to OneDrive. You can keep using Winsprout on this device."); });
+      } }, ["Back up to my OneDrive"]));
+      else store.appendChild(h("p", { class: "small muted", text: "OneDrive backup is available when Winsprout is opened inside Microsoft Teams with a work or school account." }));
+      if (st.lastError) store.appendChild(h("p", { class: "small warn", text: st.lastError }));
+    }
+    root.appendChild(store);
+
+    // profile
+    var name = h("input", { type: "text", id: "sName", value: s.name || "", maxlength: 60, autocomplete: "name" });
+    name.addEventListener("change", function () { s.name = name.value.trim(); s.u = Date.now(); save(); toast("Saved."); });
+    root.appendChild(h("div", { class: "card" }, [h("h2", { text: "Your name on reports" }), h("label", { for: "sName", class: "lbl", text: "Name (optional)" }), name]));
+
+    // workdays & goal
+    var wd = h("div", { class: "chips", role: "group", "aria-label": "Working days" });
+    [1, 2, 3, 4, 5, 6, 0].forEach(function (d) {
+      var on = s.workdays.indexOf(d) >= 0;
+      wd.appendChild(h("button", { type: "button", class: "chip", "aria-pressed": on ? "true" : "false", onclick: function () {
+        if (on) { if (s.workdays.length === 1) { toast("Keep at least one working day."); return; } s.workdays = s.workdays.filter(function (x) { return x !== d; }); }
+        else s.workdays = s.workdays.concat([d]).sort();
+        s.u = Date.now(); save(); render();
+      } }, [WS.DAY[d]]));
+    });
+    var goal = h("input", { type: "number", id: "sGoal", min: 1, max: 50, value: String(s.weeklyGoal) });
+    goal.addEventListener("change", function () { var v = Math.max(1, Math.min(50, parseInt(goal.value, 10) || 5)); s.weeklyGoal = v; s.u = Date.now(); goal.value = v; save(); toast("Weekly goal: " + v + " wins."); });
+    root.appendChild(h("div", { class: "card" }, [h("h2", { text: "Streaks and goal" }),
+      h("p", { class: "small muted", text: "Days off never break your streak. Pick your working days:" }), wd,
+      h("label", { for: "sGoal", class: "lbl", text: "Weekly goal (wins per week)" }), goal]));
+
+    // reminder
+    var time = h("input", { type: "time", id: "sTime", value: s.reminder || "17:30" });
+    time.addEventListener("change", function () { s.reminder = time.value || "17:30"; s.u = Date.now(); save(); });
+    root.appendChild(h("div", { class: "card" }, [h("h2", { text: "Daily reminder" }),
+      h("p", { class: "small muted", text: "Adds a 5-minute reminder to your Outlook calendar on your working days. It shows as free time, so it never blocks meetings." }),
+      h("div", { class: "row wrap" }, [h("label", { for: "sTime", class: "small", text: "Time" }), time,
+        h("button", { class: "btn", type: "button", onclick: function () {
+          var link = window.WS_CONFIG.appId ? "https://teams.microsoft.com/l/entity/" + window.WS_CONFIG.appId + "/today" : "https://rubuild.com/winsprout/";
+          download(new TextEncoder().encode(WS.reminderICS(s.reminder, s.workdays, link, TODAY)), "Winsprout daily reminder.ics", "text/calendar");
+        } }, ["Add reminder to my calendar"])]),
+      h("p", { class: "small muted", text: "Open the downloaded file and choose Save (Outlook) to add it." })]));
+
+    // data
+    var file = h("input", { type: "file", accept: "application/json,.json", class: "sr", id: "importFile" });
+    file.addEventListener("change", function () {
+      var f = file.files && file.files[0]; if (!f) return;
+      var r = new FileReader();
+      r.onload = function () {
+        try { var inc = normalise(JSON.parse(r.result)); if (!inc) throw new Error("bad"); data = normalise(WS.merge(data, inc)); save(); render(); toast("Imported " + plural(WS.live(inc.wins).length, "win") + "."); }
+        catch (e) { toast("That file isn't a Winsprout backup."); }
+      };
+      r.readAsText(f);
+    });
+    root.appendChild(h("div", { class: "card" }, [h("h2", { text: "Your data" }),
+      h("div", { class: "row wrap" }, [
+        h("button", { class: "btn ghost", type: "button", onclick: function () { download(new TextEncoder().encode(JSON.stringify(data, null, 1)), "winsprout-backup-" + TODAY + ".json", "application/json"); } }, ["Download a backup"]),
+        h("label", { for: "importFile", class: "btn ghost", role: "button", tabindex: "0", onkeydown: function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); file.click(); } } }, ["Import a backup"]), file,
+        h("button", { class: "btn danger", type: "button", onclick: deleteAll }, ["Delete all my data"])
+      ])]));
+    root.appendChild(h("p", { class: "small muted", text: "Winsprout " + (window.WS_CONFIG.version || "") + " · by RuBuild Services" }));
+  }
+
+  function deleteAll() {
+    ask("Delete all your wins and talents from this device" + (SY.status().state === "cloud" ? " and your OneDrive" : "") + "? This can't be undone.", "Delete everything", reallyDeleteAll);
+  }
+  function reallyDeleteAll() {
+    var cloud = SY.status().state === "cloud";
+    data = JSON.parse(JSON.stringify(DEFAULT));
+    SY.saveLocal(data);
+    (cloud ? SY.deleteRemote() : Promise.resolve(true)).then(function () { toast("All your data was deleted."); render(); }, function () { toast("Deleted here. Couldn't reach OneDrive; try again later."); render(); });
+  }
+
+  /* ---------- theme ---------- */
+  function applyTheme(t) {
+    var root = document.documentElement;
+    if (t === "dark") root.setAttribute("data-ws-theme", "dark");
+    else if (t === "contrast") root.setAttribute("data-ws-theme", "contrast");
+    else root.removeAttribute("data-ws-theme");
+  }
+
+  /* ---------- start ---------- */
+  ui.view = TAB || (VIEWS.indexOf(SY.get("view", "today")) >= 0 ? SY.get("view", "today") : "today");
+  // another Teams tab may have changed the data: refresh when this tab is shown again
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState !== "visible") return;
+    var fresh = normalise(SY.load());
+    if (fresh && JSON.stringify(fresh) !== JSON.stringify(data)) { data = fresh; render(); }
+  });
+  show(ui.view);
+  renderPill();
+  SY.start().then(function (merged) {
+    var st = SY.status();
+    if (st.inTeams && st.context && st.context.app) {
+      applyTheme(st.context.app.theme);
+      try { window.microsoftTeams.app.registerOnThemeChangeHandler(applyTheme); } catch (e) { /* older host */ }
+      try { window.microsoftTeams.app.notifySuccess(); } catch (e) { /* ignore */ }
+    }
+    if (merged) { data = normalise(merged) || data; }
+    if (!settings().name && st.account && st.account.name) { settings().name = st.account.name; }
+    renderPill(); render();
+  });
+  window.__WS_APP__ = { data: function () { return data; }, show: show, render: render };
+})();

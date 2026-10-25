@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Winsprout approval</title>
+<meta name="description" content="How Winsprout handles your information.">
+<link rel="icon" href="img/icon-32.png">
+<link rel="stylesheet" href="css/site.css?v=1.0.0">
+</head>
+<body>
+<div class="wrap">
+<header class="top">
+  <a class="mark" href="about.html"><img src="img/icon-64.png" alt="">Winsprout</a>
+  <a class="by" href="https://rubuild.com">by <b>RuBuild Services</b></a>
+</header>
+<main>
+<article class="doc"><div class="inner">
+<h1 id="h">Winsprout approval</h1>
+<p id="msg">Checking the result…</p>
+<p><a href="it-admins.html">Winsprout for IT admins</a></p>
+</div></article>
+</main>
+<script>
+(function(){
+  var q=new URLSearchParams(location.search), h=document.getElementById("h"), m=document.getElementById("msg");
+  if (q.get("error")) { h.textContent="Approval didn't complete"; m.textContent="Microsoft returned: "+(q.get("error_description")||q.get("error")).slice(0,300)+". Check that you signed in with an admin account that has one of the roles listed on the IT admins page, then try the link again."; }
+  else if ((q.get("admin_consent")||"").toLowerCase()==="true") { h.textContent="Winsprout is approved"; m.textContent="Thank you. Everyone in your organisation can now share talent posts from Winsprout without asking IT again. You can close this page."; }
+  else { m.textContent="Open this page from the approval link in Winsprout's request for IT."; }
+})();
+</script>
+<footer>
+  <span>© 2026 RuBuild Services</span>
+  <nav><a href="about.html">Winsprout</a><a href="support.html">Help</a><a href="privacy.html">Privacy</a><a href="terms.html">Terms</a></nav>
+</footer>
+</div>
+</body>
+</html>

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Winsprout for IT admins</title>
+<meta name="description" content="How Winsprout handles your information.">
+<link rel="icon" href="img/icon-32.png">
+<link rel="stylesheet" href="css/site.css?v=1.0.0">
+</head>
+<body>
+<div class="wrap">
+<header class="top">
+  <a class="mark" href="about.html"><img src="img/icon-64.png" alt="">Winsprout</a>
+  <a class="by" href="https://rubuild.com">by <b>RuBuild Services</b></a>
+</header>
+<main>
+<article class="doc"><div class="inner">
+<h1>Winsprout for IT admins</h1>
+<p class="updated">Everything your organisation needs to approve Winsprout. Last updated 18 October 2026.</p>
+<p>Winsprout is a personal wins journal for Microsoft Teams, made by RuBuild Services. Employees log their own achievements, create a Word report for appraisals, and can share talent posts (a title, a few words, a photo or a link) in a Teams chat or channel they choose. RuBuild Services has no server that receives data: the app runs in Teams and talks only to Microsoft.</p>
+<h2>What it asks for</h2>
+<p>Only Microsoft Graph <b>delegated</b> permissions. Winsprout acts as the signed-in employee, only while they use it, and never in the background.</p>
+<div class="tablewrap" tabindex="0" role="region" aria-label="Permissions"><table>
+<thead><tr><th>Permission</th><th>Why</th><th>When asked</th></tr></thead>
+<tbody>
+<tr><td>User.Read</td><td>Show which account is signed in</td><td>OneDrive backup</td></tr>
+<tr><td>Files.ReadWrite.AppFolder</td><td>Save the employee's own data and reports in OneDrive › Apps › Winsprout only. No access to other files.</td><td>OneDrive backup</td></tr>
+<tr><td>Chat.ReadBasic</td><td>List chat names so the employee can pick where to post. Doesn't read messages.</td><td>First talent post</td></tr>
+<tr><td>Team.ReadBasic.All</td><td>List the teams the employee belongs to</td><td>First talent post</td></tr>
+<tr><td>Channel.ReadBasic.All</td><td>List channel names in those teams</td><td>First talent post</td></tr>
+<tr><td>ChatMessage.Send</td><td>Post the talent message the employee wrote, after they confirm</td><td>First talent post</td></tr>
+<tr><td>ChannelMessage.Send</td><td>Post to a channel, after they confirm</td><td>First talent post</td></tr>
+</tbody></table></div>
+<p>Microsoft lists all of these as not requiring admin consent by default, so in many organisations employees can approve them themselves. If your organisation has turned off or limited user consent, an admin approves once for everyone.</p>
+<h2>Who can approve</h2>
+<ul>
+<li><b>App consent</b> (the permissions above): a Global Administrator, Privileged Role Administrator, Cloud Application Administrator or Application Administrator.</li>
+<li><b>Allowing the app in Teams</b> (if your organisation blocks store apps): a Teams Administrator or Global Administrator.</li>
+</ul>
+<h2>How to approve</h2>
+<h3>1. Allow Winsprout in Teams (only if store apps are blocked)</h3>
+<p>Teams admin center › Teams apps › Manage apps › search <b>Winsprout</b> › Allow. If employees already requested it, it appears under the <b>Apps requests</b> filter, where you can choose <b>Approve and unblock</b>.</p>
+<h3>2. Grant consent for your organisation</h3>
+<p>Microsoft Entra admin center › Entra ID › Enterprise apps › All applications › <b>Winsprout</b> › Permissions › <b>Grant admin consent</b>. Winsprout appears there after the first employee in your organisation has signed in to it.</p>
+<p>Or use the one-click link. The <b>Copy request for IT</b> button in Winsprout fills in your organisation's ID for you. Its format is:</p>
+<p class="code">https://login.microsoftonline.com/{your-tenant-id}/adminconsent?client_id={Winsprout client ID}&amp;redirect_uri=https://rubuild.com/winsprout/admin-consent.html</p>
+<p>Afterwards, employees can share talent posts without any further prompts. You can remove consent at any time in the same Permissions page.</p>
+<h2>Data and privacy</h2>
+<p>No data is sent to RuBuild Services. Wins are kept in the browser on the device and, if the employee connects it, in their own OneDrive app folder. Talent posts are ordinary Teams messages from the employee's account, covered by your Teams retention and compliance policies. Read the <a href="privacy.html">privacy policy</a>.</p>
+<h2>Contact</h2><p>support@rubuild.com</p>
+</div></article>
+</main>
+<footer>
+  <span>© 2026 RuBuild Services</span>
+  <nav><a href="about.html">Winsprout</a><a href="support.html">Help</a><a href="privacy.html">Privacy</a><a href="terms.html">Terms</a></nav>
+</footer>
+</div>
+</body>
+</html>
